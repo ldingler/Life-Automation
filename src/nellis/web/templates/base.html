@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}Nellis Deal Engine{% endblock %}</title>
+<script src="https://unpkg.com/htmx.org@1.9.12"></script>
+<style>
+  :root{
+    --bg:#f4f5f7; --card:#fff; --ink:#1a1d21; --muted:#6b7684; --line:#e3e6ea;
+    --navy:#12253d; --green:#0d3b2e; --accent:#1a7f5a; --warn:#7a5406; --bad:#b3261e;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --bg:#12151a; --card:#1a1f27; --ink:#e8ebef; --muted:#9aa4b2;
+           --line:#2a3038; --navy:#0d1a2b; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif}
+  header{background:var(--navy);color:#fff;padding:14px 22px;display:flex;
+    align-items:center;gap:22px;flex-wrap:wrap}
+  header h1{font-size:16px;margin:0;font-weight:700;letter-spacing:-.2px}
+  header nav a{color:#9fb3cc;text-decoration:none;font-size:13px;font-weight:500;margin-right:16px}
+  header nav a:hover,header nav a.on{color:#fff}
+  .exposure{margin-left:auto;font-size:12px;color:#9fb3cc;text-align:right}
+  .exposure b{color:#fff}
+  main{max-width:1080px;margin:0 auto;padding:22px 16px 60px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:16px;margin-bottom:14px}
+  .row{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+  .grow{flex:1;min-width:240px}
+  h2{font-size:15px;margin:0 0 12px}
+  a.title{color:var(--ink);text-decoration:none;font-weight:650;font-size:15px;line-height:1.35}
+  a.title:hover{text-decoration:underline}
+  .meta{font-size:12px;color:var(--muted);margin-top:4px}
+  .bid{background:var(--green);color:#fff;border-radius:8px;padding:11px 14px;min-width:172px}
+  .bid .lbl{font-size:9.5px;text-transform:uppercase;letter-spacing:.8px;
+    color:#7fd1b0;font-weight:700}
+  .bid .amt{font-size:25px;font-weight:750;line-height:1.15;margin-top:1px}
+  .bid .sub{font-size:11px;color:#a7c9bd;margin-top:2px}
+  .tag{display:inline-block;padding:1px 8px;border-radius:9px;font-size:10px;
+    font-weight:700;text-transform:uppercase}
+  .tag.high{background:#dcf5e7;color:#12653f}
+  .tag.medium{background:#fdf0d5;color:#7a5406}
+  .tag.low,.tag.none{background:#fbe0e0;color:#8f2020}
+  .tag.fix{background:#7a5406;color:#fff}
+  .tag.blocked{background:#fbe0e0;color:#8f2020}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .pos{color:var(--accent);font-weight:650}
+  .neg{color:var(--bad);font-weight:650}
+  form.inline{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
+  label{display:block;font-size:11px;color:var(--muted);margin-bottom:3px;font-weight:600}
+  input,select{background:var(--card);color:var(--ink);border:1px solid var(--line);
+    border-radius:6px;padding:7px 9px;font-size:13px;font-family:inherit}
+  button{background:var(--navy);color:#fff;border:0;border-radius:6px;padding:8px 15px;
+    font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
+  button.ghost{background:transparent;color:var(--muted);border:1px solid var(--line)}
+  button:hover{opacity:.9}
+  .empty{color:var(--muted);font-size:13px;padding:22px;text-align:center}
+  .warn{background:#fff8e6;border:1px solid #f0dfae;color:#6b5416;border-radius:7px;
+    padding:9px 11px;font-size:12px;margin-top:9px}
+  .note{font-size:11.5px;color:var(--muted);margin-top:8px}
+  .bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:5px}
+  .bar span{display:block;height:100%;background:var(--accent)}
+  .bar.hot span{background:var(--bad)}
+  code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Nellis Deal Engine</h1>
+  <nav>
+    <a href="/" class="{{ 'on' if page=='feed' }}">Deals</a>
+    <a href="/watches" class="{{ 'on' if page=='watches' }}">Watches</a>
+    <a href="/portfolio" class="{{ 'on' if page=='portfolio' }}">Portfolio</a>
+    <a href="/analytics" class="{{ 'on' if page=='analytics' }}">Analytics</a>
+  </nav>
+  {% if exposure %}
+  <div class="exposure">
+    Open exposure <b>${{ '%.0f'|format(exposure.total) }}</b> / ${{ '%.0f'|format(max_exposure) }}
+    &middot; {{ exposure.lot_count }} live bid{{ '' if exposure.lot_count == 1 else 's' }}
+    <div class="bar {{ 'hot' if exposure.total > max_exposure * 0.8 }}">
+      <span style="width:{{ [100, (exposure.total / max_exposure * 100) if max_exposure else 0]|min }}%"></span>
+    </div>
+  </div>
+  {% endif %}
+</header>
+<main>
+{% block content %}{% endblock %}
+<div class="note">
+  This tool analyzes public listings and recommends a max bid. It does not place
+  bids &mdash; enter the number on Nellis yourself and their proxy bidding runs it up for you.
+</div>
+</main>
+</body>
+</html>

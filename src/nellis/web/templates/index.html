@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Deals · Nellis Deal Engine{% endblock %}
+{% block content %}
+
+<div class="card">
+  <form class="inline" method="get" action="/">
+    <div><label>Min profit</label><input type="number" name="min_profit" value="{{ min_profit }}" step="5" style="width:96px"></div>
+    <div><label>Confidence</label>
+      <select name="confidence">
+        <option value="">any</option>
+        {% for c in ['high','medium','low'] %}
+        <option value="{{ c }}" {{ 'selected' if confidence == c }}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div><label>Sort</label>
+      <select name="sort">
+        <option value="efficiency" {{ 'selected' if sort=='efficiency' }}>profit / $ exposure</option>
+        <option value="profit" {{ 'selected' if sort=='profit' }}>total profit</option>
+        <option value="closing" {{ 'selected' if sort=='closing' }}>closing soonest</option>
+      </select>
+    </div>
+    <div><label><input type="checkbox" name="blocked" value="1" {{ 'checked' if show_blocked }}> show blocked</label></div>
+    <button type="submit">Apply</button>
+  </form>
+</div>
+
+{% for item in items %}
+{% set v = item.valuation %}
+{% set lot = item.lot %}
+<div class="card">
+  <div class="row">
+    <div class="grow">
+      <a class="title" href="/lot/{{ lot.nellis_id }}">{{ lot.title }}</a>
+      <div class="meta">
+        {% if lot.retail_price %}Retail ${{ '%.2f'|format(lot.retail_price) }} &middot; {% endif %}
+        Current ${{ '%.2f'|format(lot.current_bid) }}
+        {% if lot.condition_name %} &middot; {{ lot.condition_name }}{% endif %}
+        {% if item.closes_in %} &middot; closes in {{ item.closes_in }}{% endif %}
+        {% if lot.location %} &middot; {{ lot.location }}{% endif %}
+      </div>
+      <div class="meta" style="margin-top:7px">
+        <span class="tag {{ v.confidence.value }}">{{ v.confidence.value }}</span>
+        {% if v.comp_value %}comps ${{ '%.2f'|format(v.comp_value) }} (n={{ v.comp_count }}){% else %}no comps{% endif %}
+        {% if v.easy_fix_score and v.easy_fix_score >= 2 %}
+        <span class="tag fix">easy fix</span>
+        {% endif %}
+        {% if item.entry and item.entry.status.value == 'blocked' %}
+        <span class="tag blocked">blocked</span>
+        {% endif %}
+      </div>
+      {% if v.missing_parts %}
+      <div class="meta">Missing: {{ v.missing_parts|join(', ') }}{% if v.parts_cost %} &middot; parts ${{ '%.2f'|format(v.parts_cost) }}{% endif %}</div>
+      {% endif %}
+      {% if item.entry and item.entry.block_reason %}
+      <div class="warn">{{ item.entry.block_reason }}</div>
+      {% endif %}
+    </div>
+
+    <div class="bid">
+      <div class="lbl">Walk-away max bid</div>
+      <div class="amt">${{ '%.2f'|format(v.walk_away_max_bid) }}</div>
+      <div class="sub">
+        landed ${{ '%.2f'|format(v.landed_at_max or 0) }} &middot;
+        profit ${{ '%.2f'|format(v.projected_profit or 0) }}
+        ({{ '%.0f'|format((v.projected_margin or 0) * 100) }}%)
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <a href="{{ lot.url }}" target="_blank" rel="noopener"><button>Open on Nellis &rarr;</button></a>
+    {% if item.entry %}
+    <button class="ghost" hx-post="/api/queue/{{ item.entry.id }}/confirm"
+            hx-headers='{"X-API-Token":"{{ api_token }}"}'
+            hx-swap="none" hx-on::after-request="window.location.reload()">
+      I placed ${{ '%.2f'|format(v.walk_away_max_bid) }}
+    </button>
+    <button class="ghost" hx-post="/api/queue/{{ item.entry.id }}/skip"
+            hx-headers='{"X-API-Token":"{{ api_token }}"}'
+            hx-swap="none" hx-on::after-request="window.location.reload()">Skip</button>
+    {% endif %}
+    <span class="meta">{{ v.reason }}</span>
+  </div>
+</div>
+{% endfor %}
+
+{% if not items %}
+<div class="card empty">
+  No lots currently clear your thresholds.<br>
+  Create a watch, then run <code>nellis scan</code> to populate the feed.
+</div>
+{% endif %}
+
+{% endblock %}

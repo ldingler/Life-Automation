@@ -1,0 +1,76 @@
+#nde-panel {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  width: 320px;
+  z-index: 2147483000;
+  background: #ffffff;
+  color: #1a1d21;
+  border: 1px solid #d7dce2;
+  border-radius: 12px;
+  box-shadow: 0 10px 34px rgba(12, 22, 38, 0.22);
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  overflow: hidden;
+}
+#nde-panel .nde-head {
+  background: #12253d;
+  color: #fff;
+  padding: 9px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.2px;
+}
+#nde-panel .nde-head button {
+  background: transparent; border: 0; color: #9fb3cc;
+  cursor: pointer; font-size: 15px; line-height: 1; padding: 0 2px;
+}
+#nde-panel .nde-body { padding: 12px; }
+#nde-panel .nde-bid {
+  background: #0d3b2e; color: #fff; border-radius: 9px;
+  padding: 11px 12px; margin-bottom: 10px;
+}
+#nde-panel .nde-bid .lbl {
+  font-size: 9px; text-transform: uppercase; letter-spacing: 0.9px;
+  color: #7fd1b0; font-weight: 800;
+}
+#nde-panel .nde-bid .amt { font-size: 27px; font-weight: 800; line-height: 1.1; margin-top: 1px; }
+#nde-panel .nde-bid .sub { font-size: 11px; color: #a7c9bd; margin-top: 2px; }
+#nde-panel table { width: 100%; border-collapse: collapse; }
+#nde-panel td { padding: 3px 0; vertical-align: top; }
+#nde-panel td.k { color: #6b7684; width: 92px; font-size: 12px; }
+#nde-panel .tag {
+  display: inline-block; padding: 1px 7px; border-radius: 9px;
+  font-size: 9.5px; font-weight: 800; text-transform: uppercase;
+}
+#nde-panel .tag.high { background: #dcf5e7; color: #12653f; }
+#nde-panel .tag.medium { background: #fdf0d5; color: #7a5406; }
+#nde-panel .tag.low, #nde-panel .tag.none { background: #fbe0e0; color: #8f2020; }
+#nde-panel .nde-warn {
+  margin-top: 9px; background: #fff8e6; border: 1px solid #f0dfae;
+  color: #6b5416; border-radius: 7px; padding: 8px 9px; font-size: 11.5px;
+}
+#nde-panel .nde-bad {
+  margin-top: 9px; background: #fbe0e0; border: 1px solid #f0b4b4;
+  color: #8f2020; border-radius: 7px; padding: 8px 9px; font-size: 11.5px;
+}
+#nde-panel .nde-actions { margin-top: 11px; display: flex; gap: 7px; flex-wrap: wrap; }
+#nde-panel .nde-actions button {
+  border: 0; border-radius: 7px; padding: 8px 12px;
+  font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit;
+}
+#nde-panel .nde-primary { background: #12253d; color: #fff; }
+#nde-panel .nde-ghost { background: #eef1f5; color: #42505f; }
+#nde-panel .nde-foot {
+  margin-top: 10px; font-size: 10.5px; color: #8a94a0; line-height: 1.5;
+  border-top: 1px solid #eaeef2; padding-top: 8px;
+}
+#nde-panel .nde-filled { outline: 3px solid #1a7f5a !important; }
+@media (prefers-color-scheme: dark) {
+  #nde-panel { background: #1a1f27; color: #e8ebef; border-color: #2a3038; }
+  #nde-panel td.k { color: #9aa4b2; }
+  #nde-panel .nde-ghost { background: #2a3038; color: #cfd6de; }
+  #nde-panel .nde-foot { color: #79838f; border-top-color: #2a3038; }
+}

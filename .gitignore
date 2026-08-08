@@ -1,0 +1,35 @@
+# Secrets — MUST stay first, before anything else lands on disk
+.env
+.env.local
+*.pem
+*.key
+secrets/
+
+# Data
+*.db
+*.sqlite
+*.sqlite3
+data/
+cache/
+exports/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+
+# Playwright
+.playwright/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -1,0 +1,73 @@
+{
+  "lots": [
+    {
+      "id": 900,
+      "title": "DeWalt DCD999B 20V MAX XR Hammer Drill",
+      "retailPrice": 299.0,
+      "currentPrice": 96.0,
+      "bidCount": 15,
+      "category": "Tools",
+      "conditionName": "Open Box",
+      "conditionNotes": "",
+      "closeTime": "2026-08-01T18:00:00Z",
+      "location": "Philadelphia, PA",
+      "zipCode": "19124",
+      "buyersPremium": 15,
+      "images": [
+        {
+          "url": "https://cdn.example/900.jpg"
+        }
+      ],
+      "brand": "DeWalt",
+      "model": "DCD999B",
+      "isClosed": true,
+      "finalPrice": 96.0
+    },
+    {
+      "id": 901,
+      "title": "DEWALT DCD999 20V Hammer Drill Kit",
+      "retailPrice": 319.0,
+      "currentPrice": 104.0,
+      "bidCount": 15,
+      "category": "Tools",
+      "conditionName": "Open Box",
+      "conditionNotes": "",
+      "closeTime": "2026-08-01T18:00:00Z",
+      "location": "Philadelphia, PA",
+      "zipCode": "19124",
+      "buyersPremium": 15,
+      "images": [
+        {
+          "url": "https://cdn.example/901.jpg"
+        }
+      ],
+      "brand": "DEWALT",
+      "model": "DCD999",
+      "isClosed": true,
+      "finalPrice": 104.0
+    },
+    {
+      "id": 902,
+      "title": "DeWalt DCD999B Hammer Drill Tool Only",
+      "retailPrice": 299.0,
+      "currentPrice": 88.0,
+      "bidCount": 15,
+      "category": "Tools",
+      "conditionName": "Open Box",
+      "conditionNotes": "",
+      "closeTime": "2026-08-01T18:00:00Z",
+      "location": "Philadelphia, PA",
+      "zipCode": "19124",
+      "buyersPremium": 15,
+      "images": [
+        {
+          "url": "https://cdn.example/902.jpg"
+        }
+      ],
+      "brand": "DeWalt",
+      "model": "DCD999B",
+      "isClosed": true,
+      "finalPrice": 88.0
+    }
+  ]
+}

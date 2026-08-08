@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Portfolio{% endblock %}
+{% block content %}
+
+<div class="row">
+  <div class="card grow">
+    <h2>Realized</h2>
+    <table>
+      <tr><td>Items sold</td><td class="num">{{ stats.sold_count }}</td></tr>
+      <tr><td>Cost basis</td><td class="num">${{ '%.2f'|format(stats.sold_cost) }}</td></tr>
+      <tr><td>Revenue</td><td class="num">${{ '%.2f'|format(stats.revenue) }}</td></tr>
+      <tr><td><b>Realized profit</b></td>
+        <td class="num"><b class="{{ 'pos' if stats.realized_profit >= 0 else 'neg' }}">${{ '%.2f'|format(stats.realized_profit) }}</b></td></tr>
+      <tr><td>Realized margin</td><td class="num">{{ '%.0f'|format(stats.realized_margin * 100) }}%</td></tr>
+    </table>
+  </div>
+  <div class="card grow">
+    <h2>Model accuracy</h2>
+    <table>
+      <tr><td>Projected profit (sold items)</td><td class="num">${{ '%.2f'|format(stats.projected_on_sold) }}</td></tr>
+      <tr><td>Actual profit</td><td class="num">${{ '%.2f'|format(stats.realized_profit) }}</td></tr>
+      <tr><td><b>Forecast error</b></td>
+        <td class="num"><b class="{{ 'pos' if stats.forecast_delta >= 0 else 'neg' }}">
+          {{ '+' if stats.forecast_delta >= 0 }}${{ '%.2f'|format(stats.forecast_delta) }}</b></td></tr>
+      <tr><td>Unsold inventory</td><td class="num">{{ stats.held_count }} (${{ '%.2f'|format(stats.held_cost) }})</td></tr>
+    </table>
+    <div class="note">
+      If actual consistently trails projected, raise <code>TARGET_MARGIN</code> or lower your
+      comp trust &mdash; the model is being optimistic.
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Items</h2>
+  <table>
+    <tr>
+      <th>Item</th><th class="num">Hammer</th><th class="num">Landed</th>
+      <th class="num">Repair</th><th class="num">Sold</th><th class="num">Profit</th><th>Status</th>
+    </tr>
+    {% for row in items %}
+    <tr>
+      <td><a class="title" style="font-size:13px" href="/lot/{{ row.nellis_id }}">{{ row.title[:64] }}</a></td>
+      <td class="num">${{ '%.2f'|format(row.hammer_price) }}</td>
+      <td class="num">${{ '%.2f'|format(row.landed_cost) }}</td>
+      <td class="num">{% if row.repair_spend %}${{ '%.2f'|format(row.repair_spend) }}{% else %}&mdash;{% endif %}</td>
+      <td class="num">{% if row.sold_price %}${{ '%.2f'|format(row.sold_price) }}{% else %}&mdash;{% endif %}</td>
+      <td class="num">
+        {% if row.realized_profit is not none %}
+        <span class="{{ 'pos' if row.realized_profit >= 0 else 'neg' }}">${{ '%.2f'|format(row.realized_profit) }}</span>
+        {% else %}&mdash;{% endif %}
+      </td>
+      <td>{{ 'sold' if row.sold_price else 'held' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% if not items %}<div class="empty">No won lots recorded yet.</div>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Record a sale</h2>
+  <form class="inline" method="post" action="/portfolio/sell">
+    <div><label>Lot ID</label><input name="nellis_id" required style="width:110px"></div>
+    <div><label>Sold price</label><input type="number" name="sold_price" step="0.01" required style="width:110px"></div>
+    <div><label>Fees</label><input type="number" name="sold_fees" step="0.01" value="0" style="width:90px"></div>
+    <div><label>Repair spend</label><input type="number" name="repair_spend" step="0.01" value="0" style="width:110px"></div>
+    <div><label>Channel</label><input name="sold_channel" placeholder="ebay" style="width:100px"></div>
+    <button type="submit">Record</button>
+  </form>
+</div>
+
+{% endblock %}

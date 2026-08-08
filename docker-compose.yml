@@ -1,0 +1,17 @@
+services:
+  engine:
+    build: .
+    container_name: nellis-deal-engine
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      # Bound to loopback: the dashboard and API are for you and your browser
+      # extension, not the internet. Change only if you know why.
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - ./data:/app/data
+      - ./cache:/app/cache
+    environment:
+      - DATABASE_URL=sqlite+pysqlite:////app/data/nellis.db
+      - CACHE_DIR=/app/cache
+      - WEB_HOST=0.0.0.0

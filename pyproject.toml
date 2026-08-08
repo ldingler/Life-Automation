@@ -1,0 +1,58 @@
+[project]
+name = "nellis-deal-engine"
+version = "0.1.0"
+description = "Deal-finding and valuation engine for Nellis Auction. Analyzes lots, computes walk-away max bids. Does not place bids."
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+    "selectolax>=0.3.21",
+    "sqlalchemy>=2.0.30",
+    "alembic>=1.13",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "apscheduler>=3.10",
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "jinja2>=3.1",
+    "aiosmtplib>=3.0",
+    "typer>=0.12",
+    "rich>=13.7",
+    "python-dateutil>=2.9",
+    "tenacity>=8.3",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+browser = ["playwright>=1.44"]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "respx>=0.21",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+nellis = "nellis.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nellis"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# B008: FastAPI Depends()/Form() in defaults is the framework's own idiom.
+# UP042: StrEnum would change .value semantics these models rely on.
+ignore = ["E501", "B008", "UP042"]

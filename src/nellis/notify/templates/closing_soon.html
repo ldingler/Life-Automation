@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div style="font-size:13px;color:#42505f;margin-bottom:16px;">
+  These lots close soon and are still under your walk-away price. Nellis extends
+  the clock by 30 seconds on any late bid, so there is no advantage to waiting &mdash;
+  set your max now and let their proxy bidding handle the rest.
+</div>
+
+{% for item in items %}
+{% set v = item.verdict %}
+{% set lot = item.lot %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:12px;border:1px solid #e3e6ea;border-radius:8px;">
+  <tr>
+    <td style="padding:14px;">
+      <div style="font-size:11px;font-weight:700;color:#b3261e;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:5px;">
+        Closes in {{ item.closes_in }}
+      </div>
+      <div style="font-size:14px;font-weight:650;margin-bottom:8px;">
+        <a href="{{ lot.url }}" style="color:#12253d;text-decoration:none;">{{ lot.title }}</a>
+      </div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td style="font-size:12px;color:#6b7684;">
+            Current ${{ '%.2f'|format(lot.current_bid) }}
+            &middot; comps ${{ '%.2f'|format(item.comps.value or 0) }}
+            &middot; profit now ${{ '%.2f'|format(v.profit_at_current_bid) }}
+          </td>
+          <td align="right" style="font-size:18px;font-weight:750;color:#0d3b2e;white-space:nowrap;">
+            max ${{ '%.2f'|format(v.walk_away_max_bid) }}
+          </td>
+        </tr>
+      </table>
+      <div style="margin-top:12px;">
+        <a href="{{ lot.url }}" style="display:inline-block;background:#b3261e;color:#ffffff;text-decoration:none;font-size:13px;font-weight:600;padding:8px 16px;border-radius:6px;">
+          Bid now &rarr;
+        </a>
+      </div>
+    </td>
+  </tr>
+</table>
+{% endfor %}
+
+{% endblock %}

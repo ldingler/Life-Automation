@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Analytics{% endblock %}
+{% block content %}
+
+<div class="row">
+  <div class="card grow">
+    <h2>Comps database</h2>
+    <table>
+      <tr><td>Nellis close prices harvested</td><td class="num">{{ stats.nellis_comps }}</td></tr>
+      <tr><td>External comps cached</td><td class="num">{{ stats.external_comps }}</td></tr>
+      <tr><td>Distinct items priced</td><td class="num">{{ stats.distinct_items }}</td></tr>
+      <tr><td>Lots tracked</td><td class="num">{{ stats.lots }} ({{ stats.open_lots }} open)</td></tr>
+    </table>
+    <div class="note">
+      Nellis close prices are the highest-signal source and the only one that compounds.
+      Leave the scheduler running and this grows on its own.
+    </div>
+  </div>
+
+  <div class="card grow">
+    <h2>Discount at close</h2>
+    <table>
+      <tr><th>Category</th><th class="num">Lots</th><th class="num">Median close</th><th class="num">vs retail</th></tr>
+      {% for row in by_category %}
+      <tr>
+        <td>{{ row.category or 'uncategorized' }}</td>
+        <td class="num">{{ row.count }}</td>
+        <td class="num">${{ '%.2f'|format(row.median_price) }}</td>
+        <td class="num">{% if row.pct_of_retail %}{{ '%.0f'|format(row.pct_of_retail * 100) }}%{% else %}&mdash;{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% if not by_category %}<div class="empty">No closed lots harvested yet.</div>{% endif %}
+    <div class="note">
+      "vs retail" is what lots actually close at as a fraction of stated retail &mdash;
+      your baseline for whether a live lot is cheap.
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Recent closes</h2>
+  <table>
+    <tr><th>Item</th><th class="num">Retail</th><th class="num">Closed at</th><th class="num">% of retail</th><th>When</th></tr>
+    {% for row in recent %}
+    <tr>
+      <td>{{ row.title[:70] }}</td>
+      <td class="num">{% if row.retail_price %}${{ '%.2f'|format(row.retail_price) }}{% else %}&mdash;{% endif %}</td>
+      <td class="num">${{ '%.2f'|format(row.final_price) }}</td>
+      <td class="num">{% if row.pct %}{{ '%.0f'|format(row.pct * 100) }}%{% else %}&mdash;{% endif %}</td>
+      <td>{{ row.closed_at.strftime('%m-%d %H:%M') if row.closed_at else '—' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% if not recent %}<div class="empty">Nothing harvested yet.</div>{% endif %}
+</div>
+
+{% endblock %}

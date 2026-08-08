@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Watches{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h2>New watch</h2>
+  <form class="inline" method="post" action="/watches">
+    <div><label>Name</label><input name="name" required placeholder="Power tools" style="width:150px"></div>
+    <div><label>Keywords (any, comma-sep)</label><input name="keywords" placeholder="dewalt, milwaukee, makita" style="width:230px"></div>
+    <div><label>Must include (all)</label><input name="require_all" placeholder="drill" style="width:130px"></div>
+    <div><label>Exclude</label><input name="exclude_terms" placeholder="broken, parts only" style="width:150px"></div>
+    <div><label>Category</label><input name="categories" placeholder="Tools" style="width:110px"></div>
+    <div><label>Condition</label><input name="conditions" placeholder="open box" style="width:110px"></div>
+    <div><label>Brand</label><input name="brands" placeholder="dewalt" style="width:100px"></div>
+    <div><label>Location</label><input name="locations" placeholder="Philadelphia" style="width:120px"></div>
+    <div><label>Retail min</label><input type="number" name="min_retail" step="10" style="width:88px"></div>
+    <div><label>Retail max</label><input type="number" name="max_retail" step="10" style="width:88px"></div>
+    <div><label>Max current bid</label><input type="number" name="max_current_bid" step="5" style="width:98px"></div>
+    <div><label>Min discount %</label><input type="number" name="min_discount_pct" step="5" placeholder="60" style="width:98px"></div>
+    <div><label>Closes within (min)</label><input type="number" name="closes_within_minutes" step="30" style="width:104px"></div>
+    <div><label>Target margin %</label><input type="number" name="target_margin" step="5" placeholder="40" style="width:100px"></div>
+    <div><label>Resale via</label>
+      <select name="resale_channel">
+        {% for key, ch in channels.items() %}<option value="{{ key }}">{{ ch.label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div><label>Max repair cost</label><input type="number" name="max_repair_cost" step="5" style="width:100px"></div>
+    <div><label><input type="checkbox" name="include_damaged" value="1" checked> include damaged</label></div>
+    <button type="submit">Create watch</button>
+  </form>
+  <div class="note">
+    Damaged lots are included by default &mdash; that's where the repair arbitrage lives.
+  </div>
+</div>
+
+{% for w in watches %}
+<div class="card">
+  <div class="row">
+    <div class="grow">
+      <b>{{ w.name }}</b>
+      {% if not w.enabled %}<span class="tag none">disabled</span>{% endif %}
+      <div class="meta">
+        {% if w.keywords %}any: {{ w.keywords }}{% endif %}
+        {% if w.require_all %} &middot; all: {{ w.require_all }}{% endif %}
+        {% if w.exclude_terms %} &middot; not: {{ w.exclude_terms }}{% endif %}
+      </div>
+      <div class="meta">
+        {% if w.min_retail or w.max_retail %}retail ${{ w.min_retail or 0 }}&ndash;${{ w.max_retail or '∞' }} &middot; {% endif %}
+        {% if w.max_current_bid %}bid ≤ ${{ w.max_current_bid }} &middot; {% endif %}
+        {% if w.min_discount_pct %}discount ≥ {{ '%.0f'|format(w.min_discount_pct * 100) }}% &middot; {% endif %}
+        {% if w.closes_within_minutes %}closes ≤ {{ w.closes_within_minutes }}m &middot; {% endif %}
+        margin {{ '%.0f'|format((w.target_margin or default_margin) * 100) }}%
+        {% if not w.include_damaged %} &middot; no damaged{% endif %}
+      </div>
+      <div class="meta">
+        {{ w.match_count }} match{{ '' if w.match_count == 1 else 'es' }}
+        {% if w.last_run_at %} &middot; last run {{ w.last_run_at.strftime('%m-%d %H:%M') }}{% else %} &middot; never run{% endif %}
+      </div>
+    </div>
+    <form method="post" action="/watches/{{ w.id }}/toggle">
+      <button class="ghost">{{ 'Disable' if w.enabled else 'Enable' }}</button>
+    </form>
+    <form method="post" action="/watches/{{ w.id }}/delete"
+          onsubmit="return confirm('Delete watch {{ w.name }}?')">
+      <button class="ghost">Delete</button>
+    </form>
+  </div>
+</div>
+{% endfor %}
+
+{% if not watches %}
+<div class="card empty">No watches yet. Create one above.</div>
+{% endif %}
+
+{% endblock %}

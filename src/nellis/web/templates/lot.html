@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}{{ lot.title }}{% endblock %}
+{% block content %}
+
+<div class="card">
+  <div class="row">
+    <div class="grow">
+      <a class="title" href="{{ lot.url }}" target="_blank" rel="noopener">{{ lot.title }}</a>
+      <div class="meta">
+        Lot {{ lot.nellis_id }}
+        {% if lot.brand %} &middot; {{ lot.brand }}{% endif %}
+        {% if lot.category %} &middot; {{ lot.category }}{% endif %}
+        {% if lot.location %} &middot; {{ lot.location }}{% endif %}
+      </div>
+      <div class="meta">
+        Retail ${{ '%.2f'|format(lot.retail_price or 0) }} &middot;
+        Current bid ${{ '%.2f'|format(lot.current_bid) }} ({{ lot.bid_count }} bids)
+        {% if closes_in %} &middot; closes in {{ closes_in }}{% endif %}
+      </div>
+    </div>
+    {% if v %}
+    <div class="bid">
+      <div class="lbl">Walk-away max bid</div>
+      <div class="amt">${{ '%.2f'|format(v.walk_away_max_bid) }}</div>
+      <div class="sub">profit ${{ '%.2f'|format(v.projected_profit or 0) }}
+        ({{ '%.0f'|format((v.projected_margin or 0) * 100) }}%)</div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if v %}
+<div class="row">
+  <div class="card grow">
+    <h2>Cost to buy</h2>
+    <table>
+      <tr><td>Hammer price (your max)</td><td class="num">${{ '%.2f'|format(v.walk_away_max_bid) }}</td></tr>
+      <tr><td>Buyer's premium ({{ '%.0f'|format(bp_rate * 100) }}%)</td><td class="num">${{ '%.2f'|format(cost.buyers_premium) }}</td></tr>
+      <tr><td>Sales tax ({{ '%.3f'|format(tax_rate * 100) }}%)</td><td class="num">${{ '%.2f'|format(cost.tax) }}</td></tr>
+      {% if cost.pickup %}<tr><td>Pickup</td><td class="num">${{ '%.2f'|format(cost.pickup) }}</td></tr>{% endif %}
+      <tr><td><b>Landed cost</b></td><td class="num"><b>${{ '%.2f'|format(cost.total) }}</b></td></tr>
+    </table>
+    <div class="note">Every $1 bid costs ${{ '%.3f'|format(multiplier) }} landed.</div>
+  </div>
+
+  <div class="card grow">
+    <h2>What it's worth</h2>
+    <table>
+      <tr><td>Comp value</td><td class="num">{% if v.comp_value %}${{ '%.2f'|format(v.comp_value) }}{% else %}&mdash;{% endif %}</td></tr>
+      <tr><td>Comps used</td><td class="num">{{ v.comp_count }}{% if v.comp_sources %} ({{ v.comp_sources|join(', ') }}){% endif %}</td></tr>
+      <tr><td>Confidence</td><td class="num"><span class="tag {{ v.confidence.value }}">{{ v.confidence.value }}</span></td></tr>
+      <tr><td>Resale channel</td><td class="num">{{ v.resale_channel }}</td></tr>
+      <tr><td><b>Net proceeds</b></td><td class="num"><b>${{ '%.2f'|format(v.net_resale or 0) }}</b></td></tr>
+    </table>
+    {% if v.comp_spread %}<div class="note">Price spread {{ '%.0f'|format(v.comp_spread * 100) }}% of value.</div>{% endif %}
+  </div>
+</div>
+
+{% if v.damage_signals or v.missing_parts %}
+<div class="card">
+  <h2>Condition &amp; repair</h2>
+  {% if v.missing_parts %}
+  <p style="margin:0 0 8px">Missing: <b>{{ v.missing_parts|join(', ') }}</b></p>
+  {% endif %}
+  <table>
+    <tr><td>Replacement parts</td><td class="num">${{ '%.2f'|format(v.parts_cost) }}</td></tr>
+    <tr><td>Labor</td><td class="num">{{ '%.1f'|format(v.labor_hours) }} h</td></tr>
+    {% if v.easy_fix_score %}
+    <tr><td>Easy-fix score</td><td class="num">{{ '%.1f'|format(v.easy_fix_score) }}&times;
+      {% if v.easy_fix_score >= 2 %}<span class="tag fix">easy fix</span>{% endif %}</td></tr>
+    {% endif %}
+  </table>
+  {% if v.repair_notes %}<div class="warn">{{ v.repair_notes }}</div>{% endif %}
+  {% if v.damage_signals %}
+  <div class="note">Signals: {% for s in v.damage_signals %}{{ s.kind }} &ldquo;{{ s.phrase }}&rdquo;{% if not loop.last %}, {% endif %}{% endfor %}</div>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Verdict</h2>
+  <p style="margin:0">{{ v.reason }}</p>
+  <div class="note">Computed {{ v.computed_at.strftime('%Y-%m-%d %H:%M UTC') }}</div>
+</div>
+{% else %}
+<div class="card empty">This lot has not been valued yet. Run <code>nellis value {{ lot.nellis_id }}</code>.</div>
+{% endif %}
+
+{% if snapshots %}
+<div class="card">
+  <h2>Bid history</h2>
+  <table>
+    <tr><th>Observed</th><th class="num">Bid</th><th class="num">Bids</th></tr>
+    {% for s in snapshots %}
+    <tr>
+      <td>{{ s.observed_at.strftime('%m-%d %H:%M') }}</td>
+      <td class="num">${{ '%.2f'|format(s.current_bid) }}</td>
+      <td class="num">{{ s.bid_count }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+{% endblock %}

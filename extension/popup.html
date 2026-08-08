@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body{width:300px;margin:0;padding:14px;background:#fff;color:#1a1d21;
+    font:13px/1.45 -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif}
+  @media (prefers-color-scheme:dark){body{background:#1a1f27;color:#e8ebef}}
+  h1{font-size:14px;margin:0 0 10px}
+  label{display:block;font-size:11px;color:#6b7684;margin:9px 0 3px;font-weight:650}
+  input[type=text]{width:100%;padding:7px 9px;border:1px solid #d7dce2;border-radius:6px;
+    font-size:12.5px;font-family:inherit;background:transparent;color:inherit}
+  .chk{display:flex;gap:7px;align-items:flex-start;margin-top:11px;font-size:12px}
+  button{width:100%;margin-top:11px;background:#12253d;color:#fff;border:0;
+    border-radius:7px;padding:9px;font-size:13px;font-weight:650;cursor:pointer;font-family:inherit}
+  button.alt{background:#eef1f5;color:#42505f;margin-top:7px}
+  .status{font-size:11.5px;color:#1a7f5a;margin-top:8px;min-height:15px}
+  .note{font-size:10.5px;color:#8a94a0;margin-top:11px;line-height:1.5;
+    border-top:1px solid #eaeef2;padding-top:8px}
+</style>
+</head>
+<body>
+  <h1>Nellis Deal Engine</h1>
+
+  <label>Engine address</label>
+  <input type="text" id="apiBase" placeholder="http://127.0.0.1:8787">
+
+  <label>API token (if set in .env)</label>
+  <input type="text" id="apiToken" placeholder="optional">
+
+  <div class="chk">
+    <input type="checkbox" id="enterToBid">
+    <label for="enterToBid" style="margin:0;color:inherit;font-weight:400">
+      Enter key places the bid on the lot you're viewing
+      <span style="display:block;color:#8a94a0;font-size:10.5px;margin-top:2px">
+        A shortcut for the click you'd make anyway. Still one keypress, per lot,
+        with the lot on screen. Off by default.
+      </span>
+    </label>
+  </div>
+
+  <button id="save">Save</button>
+  <button class="alt" id="openQueue">Open bid queue</button>
+  <div class="status" id="status"></div>
+
+  <div class="note">
+    This extension shows your own valuation and fills in the max-bid box.
+    It never bids on its own and never runs in the background.
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
