@@ -22,8 +22,14 @@ class Settings(BaseSettings):
     )
 
     # ---- storage -------------------------------------------------------
+    # All of these are absolute and anchored to the repo, never to the current
+    # working directory. Otherwise `nellis record` run from your home folder
+    # writes the capture to ~/fixtures/live and you can't find the file you were
+    # told to send.
     database_url: str = f"sqlite+pysqlite:///{REPO_ROOT / 'data' / 'nellis.db'}"
     cache_dir: Path = REPO_ROOT / "cache"
+    output_dir: Path = REPO_ROOT / "fixtures" / "live"
+    preview_dir: Path = REPO_ROOT / "data" / "previews"
 
     # ---- ingestion (politeness) ----------------------------------------
     # These defaults are deliberately conservative. We identify as an ordinary

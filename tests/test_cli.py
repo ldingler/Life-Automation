@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import zipfile
+from pathlib import Path
 
 import httpx
 import pytest
@@ -249,6 +250,111 @@ class TestRecordCapture:
         for _ in range(40):
             node = {"wrap": node}
         assert scrub(node) is not None
+
+
+class TestPathsAreRepoAnchored:
+    """Regression tests for output landing wherever the shell happened to be.
+
+    `nellis record` run from your home directory used to write the capture to
+    ~/fixtures/live, so the file you were told to send didn't exist where the
+    docs said it would. Every output path is now anchored to the repo.
+    """
+
+    def test_configured_output_dirs_are_absolute(self, settings):
+        """Whatever they're set to, they must never be cwd-relative."""
+        for directory in (settings.output_dir, settings.preview_dir, settings.cache_dir):
+            assert Path(directory).is_absolute(), f"{directory} must be absolute"
+
+    def test_defaults_are_anchored_to_the_repo(self):
+        """With nothing configured, output belongs in the repo — not the cwd.
+
+        Checked against the field defaults rather than a live Settings, because
+        the test env deliberately redirects some of these to tmp dirs.
+        """
+        from nellis.config import REPO_ROOT, Settings
+
+        for name in ("output_dir", "preview_dir", "cache_dir"):
+            default = Settings.model_fields[name].default
+            path = Path(default)
+            assert path.is_absolute(), f"{name} default must be absolute"
+            assert REPO_ROOT in path.parents, f"{name} default must live under the repo"
+
+    @pytest.mark.asyncio
+    async def test_capture_ignores_the_current_directory(self, tmp_path, monkeypatch):
+        import os
+
+        from nellis.config import get_settings
+
+        configured = tmp_path / "configured"
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+
+        settings = get_settings()
+        monkeypatch.setattr(settings, "output_dir", configured)
+
+        html = fixture_text("search_page.html")
+        client = PoliteClient(
+            settings=settings,
+            client=httpx.AsyncClient(
+                transport=httpx.MockTransport(lambda r: httpx.Response(200, text=html))
+            ),
+        )
+        await client.__aenter__()
+
+        original = os.getcwd()
+        os.chdir(elsewhere)
+        try:
+            archive, _ = await capture(client)
+        finally:
+            os.chdir(original)
+
+        assert archive.is_absolute()
+        assert archive.parent == configured.resolve()
+        # Nothing may be written relative to where the shell happened to be.
+        assert not (elsewhere / "fixtures").exists()
+        assert list(elsewhere.iterdir()) == []
+
+    def test_preview_path_is_absolute(self, tmp_path):
+        from nellis.notify.email import RenderedEmail
+
+        email = RenderedEmail(subject="Test digest", html="<p>x</p>", text="x")
+        path = email.preview_path(tmp_path / "previews")
+        assert path.is_absolute()
+        assert path.exists()
+
+
+class TestEnvironmentCheck:
+    def test_check_passes_on_a_working_environment(self):
+        from typer.testing import CliRunner
+
+        from nellis.cli import app
+
+        result = CliRunner().invoke(app, ["check"])
+        assert result.exit_code == 0, result.output
+        assert "Python >= 3.11" in result.output
+        assert "FAIL" not in result.output
+
+    def test_check_reports_absolute_paths(self):
+        from typer.testing import CliRunner
+
+        from nellis.cli import app
+
+        result = CliRunner(env={"COLUMNS": "200"}).invoke(app, ["check"])
+        # Folded across lines by Rich, so compare with whitespace collapsed.
+        collapsed = "".join(result.output.split())
+        assert "Databasepathwritable" in collapsed
+        assert "/" in result.output
+
+    def test_missing_optional_config_is_a_warning_not_a_failure(self):
+        """Demo mode works without SMTP or eBay; check must not imply breakage."""
+        from typer.testing import CliRunner
+
+        from nellis.cli import app
+
+        result = CliRunner().invoke(app, ["check"])
+        assert result.exit_code == 0
+        assert "warn" in result.output
+        assert "nellis demo" in result.output
 
 
 class TestDemoIntegration:

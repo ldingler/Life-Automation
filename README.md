@@ -28,8 +28,28 @@ knowing what number to put in. This works out that number.
 
 ## See it work first (no setup, no network)
 
+**macOS — one command:**
+
+```bash
+git clone https://github.com/ldingler/Life-Automation && cd Life-Automation
+git checkout claude/nellis-auction-auto-bidder-vkty08
+./scripts/bootstrap-mac.sh
+```
+
+It checks your Python, sets up the venv, installs, runs the tests and seeds the
+demo. It **detects rather than installs** — if Python 3.11+ or `uv` is missing it
+prints the exact command and stops, rather than installing Homebrew on your
+machine unasked.
+
+> macOS ships Python 3.9, which is too old. If the script says so:
+> `brew install python@3.11`. Every dependency has prebuilt wheels for both
+> Apple Silicon and Intel, so nothing needs Xcode to compile.
+
+**Any platform, manually:**
+
 ```bash
 uv venv && uv pip install -e ".[dev]"
+nellis check                  # verify the environment first
 nellis demo --reset
 nellis serve                  # http://127.0.0.1:8787
 ```
@@ -210,9 +230,30 @@ codebase. If it gets rate-limited, the fix is to slow it down.
 
 ---
 
+## Troubleshooting
+
+`nellis check` is the first thing to run when anything looks wrong — it verifies
+Python version, dependencies, writable paths and the port, and tells you what to
+do about each failure. Missing email/eBay config is reported as a *warning*: the
+demo works without either.
+
+Every path it reports is absolute and anchored to the repo, so `nellis` behaves
+identically no matter which directory you run it from. Output always lands in
+`data/` and `fixtures/` inside the repo — never in your current folder.
+
+| Symptom | Cause |
+|---|---|
+| `SyntaxError` deep in a dependency | Python 3.9 (the macOS system one). Use 3.11+. |
+| `Address already in use` | Something's on 8787 — `nellis serve --port 8788` |
+| Dashboard is empty | Run `nellis demo --reset`, or `nellis scan` for live data |
+| `nellis doctor` shows all zeros | Site structure changed — run `nellis record` and send the zip |
+| Extension shows nothing | Engine not running (`nellis serve`), or wrong address in the popup |
+
 ## The browser extension
 
 `chrome://extensions` → Developer mode → **Load unpacked** → select `extension/`.
+On macOS the repo is wherever you cloned it; the folder to pick is `extension/`
+inside it.
 
 On any Nellis lot page it shows your valuation and pre-fills the max-bid field.
 The queue page (`Open bid queue` in the popup) turns "50 lots to bid on" into an
@@ -250,7 +291,7 @@ src/nellis/
   web/         FastAPI + HTMX dashboard
   api/         JSON API for the extension
 extension/     Chrome MV3
-tests/         138 tests, fully offline
+tests/         145 tests, fully offline
 ```
 
 Three interfaces absorb all the volatility: `NellisAdapter` (site changes),
@@ -279,7 +320,7 @@ sold. If actual consistently trails projected, the model is optimistic — raise
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q      # 138 tests, no network
+.venv/bin/python -m pytest -q      # 145 tests, no network
 ```
 
 Ingestion is fixture-driven; valuation is pure functions. The invariant worth

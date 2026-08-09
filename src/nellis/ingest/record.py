@@ -31,8 +31,6 @@ from .remix_json import discover_route_ids, extract_json_blobs, lots_from_blobs
 
 log = logging.getLogger(__name__)
 
-DEFAULT_OUT = Path("fixtures/live")
-
 # Anything that looks like a credential is stripped before writing. These pages
 # are public and shouldn't contain any, but a capture is meant to be shareable,
 # so we don't rely on that assumption.
@@ -112,7 +110,9 @@ async def capture(
     query: str = "tool",
 ) -> tuple[Path, CaptureReport]:
     """Fetch the search page and one lot page; write everything to a zip."""
-    out_dir = out_dir or DEFAULT_OUT
+    # Anchored to the repo via settings, not the shell's cwd.
+    out_dir = out_dir or client.settings.output_dir
+    out_dir = Path(out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     base = client.settings.nellis_base_url
     files: dict[str, str] = {}

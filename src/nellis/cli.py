@@ -20,7 +20,7 @@ from rich.panel import Panel
 from rich.table import Table
 from sqlalchemy import func, select
 
-from .config import get_settings
+from .config import REPO_ROOT, get_settings
 from .db import init_db, session_scope
 from .models import Comp, Lot, Valuation, Watch
 
@@ -116,7 +116,7 @@ def doctor(lot_id: str = typer.Option(None, help="A known-good lot ID to test ag
         # Also write it to disk — easier to hand over than copying a terminal table.
         import json as json_module
 
-        out = Path("fixtures/live")
+        out = settings.output_dir
         out.mkdir(parents=True, exist_ok=True)
         report_path = out / "doctor.json"
         report_path.write_text(json_module.dumps(report, indent=2))
@@ -135,6 +135,146 @@ def doctor(lot_id: str = typer.Option(None, help="A known-good lot ID to test ag
 
 
 @app.command()
+def check() -> None:
+    """Verify this machine can run the engine. No network, no writes, ~1 second.
+
+    Run this before anything else on a new machine. Missing email or eBay
+    credentials are reported as warnings, not failures — the demo is designed to
+    work without them, and calling them errors would wrongly suggest the tool is
+    broken when it simply isn't configured yet.
+    """
+    import platform
+    import socket
+    import sys
+
+    settings = get_settings()
+    rows: list[tuple[str, str, str, str]] = []
+    failures = 0
+    warnings = 0
+
+    def record(name: str, ok: bool | None, detail: str, fix: str = "") -> None:
+        nonlocal failures, warnings
+        if ok is True:
+            status = "[green]pass[/]"
+        elif ok is None:
+            status = "[yellow]warn[/]"
+            warnings += 1
+        else:
+            status = "[red]FAIL[/]"
+            failures += 1
+        rows.append((status, name, detail, fix))
+
+    # ---- interpreter -----------------------------------------------------
+    version = sys.version_info
+    record(
+        "Python >= 3.11",
+        version >= (3, 11),
+        f"{version.major}.{version.minor}.{version.micro}",
+        "" if version >= (3, 11) else "macOS ships 3.9. Install 3.11+: brew install python@3.11",
+    )
+
+    machine = platform.machine()
+    system = platform.system()
+    label = {"Darwin": "macOS", "Linux": "Linux", "Windows": "Windows"}.get(system, system)
+    record("Platform", True, f"{label} {platform.release()} ({machine})")
+
+    # ---- dependencies ----------------------------------------------------
+    missing = []
+    for module in ("httpx", "selectolax", "sqlalchemy", "fastapi", "jinja2",
+                   "apscheduler", "pydantic_settings", "aiosmtplib", "typer"):
+        try:
+            __import__(module)
+        except ImportError:
+            missing.append(module)
+    record(
+        "Dependencies",
+        not missing,
+        "all present" if not missing else f"missing: {', '.join(missing)}",
+        "" if not missing else 'uv pip install -e ".[dev]"',
+    )
+
+    # ---- storage ---------------------------------------------------------
+    db_path = Path(settings.database_url.split("///")[-1])
+    writable = True
+    try:
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        probe = db_path.parent / ".write-probe"
+        probe.write_text("ok")
+        probe.unlink()
+    except OSError as exc:
+        writable = False
+        detail = str(exc)
+    else:
+        detail = str(db_path)
+    record("Database path writable", writable, detail,
+           "" if writable else "check permissions or set DATABASE_URL")
+
+    for label_name, directory in (("Cache dir", settings.cache_dir),
+                                  ("Capture dir", settings.output_dir),
+                                  ("Preview dir", settings.preview_dir)):
+        try:
+            Path(directory).mkdir(parents=True, exist_ok=True)
+            record(label_name, True, str(Path(directory).resolve()))
+        except OSError as exc:
+            record(label_name, False, str(exc), "check permissions")
+
+    # ---- network ---------------------------------------------------------
+    port_free = True
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe_socket:
+        probe_socket.settimeout(0.4)
+        if probe_socket.connect_ex(("127.0.0.1", settings.web_port)) == 0:
+            port_free = False
+    record(
+        f"Port {settings.web_port} free",
+        port_free or None,  # in-use is a warning: it may be our own server
+        "available" if port_free else "in use (already running?)",
+        "" if port_free else f"nellis serve --port {settings.web_port + 1}",
+    )
+
+    # ---- configuration (warnings only) -----------------------------------
+    env_file = REPO_ROOT / ".env"
+    record(
+        ".env file", env_file.exists() or None,
+        "present" if env_file.exists() else "not found — defaults in use",
+        "" if env_file.exists() else "cp .env.example .env   (not needed for `nellis demo`)",
+    )
+    record(
+        "Email alerts", settings.email_configured or None,
+        "configured" if settings.email_configured else "disabled — no SMTP settings",
+        "" if settings.email_configured else "set SMTP_* and EMAIL_TO in .env (Gmail needs an App Password)",
+    )
+    has_ebay = bool(settings.ebay_client_id and settings.ebay_client_secret)
+    record(
+        "eBay comps", has_ebay or None,
+        "configured" if has_ebay else "disabled — Nellis close history only",
+        "" if has_ebay else "free key at developer.ebay.com, then set EBAY_CLIENT_ID/SECRET",
+    )
+
+    # `overflow="fold"` matters here: these details are absolute paths, and a
+    # truncated path ("/home/user/Life-Aut…") is useless for the one thing this
+    # command exists to answer — where are my files actually going?
+    table = Table(box=None, padding=(0, 2))
+    table.add_column("")
+    table.add_column("check", no_wrap=True)
+    table.add_column("detail", overflow="fold")
+    table.add_column("fix", overflow="fold")
+    for status, name, detail, fix in rows:
+        table.add_row(status, name, detail, f"[dim]{fix}[/]" if fix else "")
+    console.print(table)
+
+    if failures:
+        console.print(f"\n[red]{failures} blocking problem(s).[/] Fix those before continuing.")
+        raise typer.Exit(1)
+    if warnings:
+        console.print(
+            f"\n[green]Ready.[/] {warnings} optional thing(s) unconfigured — "
+            "[bold]nellis demo[/] works without any of them."
+        )
+    else:
+        console.print("\n[green]Ready.[/] Everything configured.")
+
+
+@app.command()
 def demo(
     reset: bool = typer.Option(False, "--reset", help="Wipe existing data first"),
 ) -> None:
@@ -149,8 +289,19 @@ def demo(
     async def _run() -> None:
         init_db()
         settings = get_settings()
-        with session_scope() as session:
-            stats = await seed(session, settings, reset=reset)
+
+        # Harvesting logs one line per closed lot. That's useful when comps
+        # trickle in live, but the demo seeds ~106 at once and the summary below
+        # is the part worth reading. `-v` still shows them.
+        harvest_log = logging.getLogger("nellis.ingest.harvest")
+        previous_level = harvest_log.level
+        if harvest_log.getEffectiveLevel() > logging.DEBUG:
+            harvest_log.setLevel(logging.WARNING)
+        try:
+            with session_scope() as session:
+                stats = await seed(session, settings, reset=reset)
+        finally:
+            harvest_log.setLevel(previous_level)
 
         table = Table(show_header=False, box=None, padding=(0, 2))
         table.add_row("Closed lots (became comps)", str(stats["closed"]))
@@ -543,8 +694,8 @@ def digest(dry_run: bool = typer.Option(True, help="Render without sending")) ->
                     if lot is not None:
                         results.append(await engine.value(lot))
                 email = EmailNotifier(settings).render_digest([r for r in results if r.recommended])
-                path = email.preview_path(Path("data/previews"))
-                console.print(f"[green]Preview written[/] → {path}")
+                path = email.preview_path(settings.preview_dir)
+                console.print(f"[green]Preview written[/] → {path.resolve()}")
 
     asyncio.run(_run())
 
