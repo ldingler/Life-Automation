@@ -5,6 +5,11 @@
 *.key
 secrets/
 
+# Live captures from `nellis record` / `nellis doctor`. These are real page
+# dumps from your machine — reviewed and shared deliberately, never committed
+# by accident.
+fixtures/live/
+
 # Data
 *.db
 *.sqlite

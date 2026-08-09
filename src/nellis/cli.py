@@ -74,16 +74,21 @@ def doctor(lot_id: str = typer.Option(None, help="A known-good lot ID to test ag
         settings = get_settings()
         chain = default_chain()
         table = Table("strategy", "search", "detail", "notes", title="Adapter health")
+        report: dict = {"base_url": settings.nellis_base_url, "strategies": []}
 
         async with PoliteClient(settings) as client:
             for adapter in chain.adapters:
                 search_result, detail_result, note = "—", "—", ""
+                row: dict = {"strategy": adapter.name, "lots": 0, "detail_ok": False}
                 try:
                     records = await adapter.search(client, SearchFilters(query="tool"))
+                    row["lots"] = len(records)
                     search_result = f"[green]{len(records)} lots[/]" if records else "[red]0[/]"
                     if records:
                         sample = records[0]
                         missing = sample.missing_critical_fields()
+                        row["missing_fields"] = missing
+                        row["sample_id"] = sample.nellis_id
                         note = (
                             f"[yellow]missing: {', '.join(missing)}[/]"
                             if missing
@@ -92,16 +97,30 @@ def doctor(lot_id: str = typer.Option(None, help="A known-good lot ID to test ag
                         target = lot_id or sample.nellis_id
                         record = await adapter.fetch_lot(client, target)
                         detail_result = "[green]ok[/]" if record else "[red]none[/]"
+                        row["detail_ok"] = record is not None
                 except BlockedError as exc:
                     console.print(f"[red]BLOCKED:[/] {exc}")
+                    row["error"] = str(exc)
+                    report["strategies"].append(row)
                     break
                 except Exception as exc:
                     search_result = "[red]error[/]"
                     note = str(exc)[:70]
+                    row["error"] = str(exc)[:300]
+                report["strategies"].append(row)
                 table.add_row(adapter.name, search_result, detail_result, note)
 
         console.print(table)
         console.print(f"requests used: {client.requests_made}")
+
+        # Also write it to disk — easier to hand over than copying a terminal table.
+        import json as json_module
+
+        out = Path("fixtures/live")
+        out.mkdir(parents=True, exist_ok=True)
+        report_path = out / "doctor.json"
+        report_path.write_text(json_module.dumps(report, indent=2))
+        console.print(f"[dim]report written to {report_path}[/]")
         console.print(
             Panel(
                 "If every strategy shows 0 lots, the site structure changed.\n"
@@ -109,6 +128,100 @@ def doctor(lot_id: str = typer.Option(None, help="A known-good lot ID to test ag
                 "then re-record fixtures in tests/fixtures/ and re-run pytest.",
                 title="If this failed",
                 border_style="yellow",
+            )
+        )
+
+    asyncio.run(_run())
+
+
+@app.command()
+def demo(
+    reset: bool = typer.Option(False, "--reset", help="Wipe existing data first"),
+) -> None:
+    """Seed a realistic dataset so you can see the whole system work offline.
+
+    No credentials, no network, no scraping. Lots and sales history are seeded,
+    then run through the REAL valuation engine — so every number shown is
+    genuinely computed, not pre-baked.
+    """
+    from .demo import seed
+
+    async def _run() -> None:
+        init_db()
+        settings = get_settings()
+        with session_scope() as session:
+            stats = await seed(session, settings, reset=reset)
+
+        table = Table(show_header=False, box=None, padding=(0, 2))
+        table.add_row("Closed lots (became comps)", str(stats["closed"]))
+        table.add_row("Comps in database", str(stats["comps"]))
+        table.add_row("Open lots valued", str(stats["open"]))
+        table.add_row("[green]Recommended[/]", f"[green]{stats['recommended']}[/]")
+        table.add_row("Rejected (guardrails)", str(stats["rejected"]))
+        table.add_row("Repair plays flagged", str(stats["repair_flagged"]))
+        table.add_row("Queued for bidding", str(stats["queued"]))
+        console.print(table)
+
+        console.print(
+            Panel(
+                "  nellis queue           what to go bid on\n"
+                "  nellis digest          render the alert email\n"
+                f"  nellis serve           dashboard at http://{settings.web_host}:{settings.web_port}",
+                title="Now try",
+                border_style="green",
+            )
+        )
+        console.print(
+            "[dim]Demo data only. Run `nellis demo --reset` to rebuild, "
+            "or delete data/nellis.db before going live.[/]"
+        )
+
+    asyncio.run(_run())
+
+
+@app.command()
+def record(
+    lot_id: str = typer.Argument(None, help="Specific lot to capture; otherwise auto-picked"),
+    query: str = typer.Option("tool", help="Search term to capture results for"),
+) -> None:
+    """Capture live page data so the parsers can be calibrated against reality.
+
+    Produces fixtures/live/capture.zip — public page HTML plus the JSON payloads
+    found inside it, with any credential-shaped fields redacted. Send that file
+    over and the adapters can be tuned to the real site.
+    """
+    from .ingest import BlockedError, PoliteClient
+    from .ingest.record import capture
+
+    async def _run() -> None:
+        settings = get_settings()
+        async with PoliteClient(settings) as client:
+            try:
+                archive, report = await capture(client, lot_id, query=query)
+            except BlockedError as exc:
+                console.print(f"[red]Blocked — stopping.[/] {exc}")
+                raise typer.Exit(1) from exc
+
+        table = Table("strategy", "lots", "resolved", "missing")
+        for probe in report.probes:
+            table.add_row(
+                probe.strategy,
+                f"[green]{probe.lots_found}[/]" if probe.lots_found else "[red]0[/]",
+                str(len(probe.resolved_fields)),
+                ", ".join(probe.missing_fields) or "[green]none[/]",
+            )
+        console.print(table)
+        for note in report.notes:
+            console.print(f"[yellow]! {note}[/]")
+
+        size_kb = archive.stat().st_size / 1024
+        console.print(
+            Panel(
+                f"[bold]{archive}[/]  ({size_kb:,.0f} KB)\n\n"
+                "Public page data only; credential-shaped fields are redacted.\n"
+                "Send this file over to have the parsers calibrated.",
+                title="Capture written",
+                border_style="green",
             )
         )
 

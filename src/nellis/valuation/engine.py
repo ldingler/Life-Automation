@@ -230,9 +230,25 @@ class ValuationEngine:
             tax_rate=tax_rate,
             pickup=settings.pickup_cost,
         )
+
+        # Fatal damage forces the bid to zero rather than merely un-recommending
+        # it. The scrap-value math still produces a plausible-looking number, and
+        # a confident "$83" sitting next to "compressor is shot" is a trap — the
+        # figure travels into emails and the extension panel, away from the
+        # reason text that explains it.
+        #
+        # Profit is zeroed alongside it: with no bid there is no trade, and
+        # leaving the pre-zeroing profit in place would report "max $0, profit
+        # $170" — an incoherent pairing that invites someone to go bid anyway.
         landed = landed_cost(max_bid, bp_rate=bp_rate, tax_rate=tax_rate, pickup=settings.pickup_cost)
-        projected_profit = net_resale - landed.total
-        projected_margin = projected_profit / net_resale if net_resale > 0 else 0.0
+        if condition.is_fatal:
+            max_bid = 0.0
+            landed = landed_cost(0.0, bp_rate=bp_rate, tax_rate=tax_rate, pickup=0.0)
+            projected_profit = 0.0
+            projected_margin = 0.0
+        else:
+            projected_profit = net_resale - landed.total
+            projected_margin = projected_profit / net_resale if net_resale > 0 else 0.0
         current_profit = profit_at(
             lot.current_bid or 0.0,
             net_resale,
@@ -293,6 +309,13 @@ class ValuationEngine:
     ) -> tuple[bool, str]:
         current = lot.current_bid or 0.0
 
+        # Fatal is checked first, before the generic max_bid <= 0 case. Fatal
+        # damage zeroes the bid, so a later check would swallow it and report
+        # "worth less than the cost of buying it" — true in effect, but it hides
+        # the actual reason and reads as a pricing conclusion rather than a
+        # condition one.
+        if condition.is_fatal:
+            return False, "Fatal damage — not worth pursuing except for parts."
         if max_bid <= 0:
             return False, "No viable bid — the item is worth less than the cost of buying it."
         if max_bid <= current:
@@ -305,8 +328,6 @@ class ValuationEngine:
                 f"Too thin — projected profit ${projected_profit:,.2f} is under your "
                 f"${settings.min_profit_dollars:,.2f} floor."
             )
-        if condition.is_fatal:
-            return False, "Fatal damage — not worth pursuing except for parts."
         if confidence.level == Confidence.NONE:
             return False, "No comparable sales — cannot justify a bid."
         if exposure is not None and not exposure.allowed:
