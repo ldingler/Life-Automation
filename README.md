@@ -323,6 +323,19 @@ sold. If actual consistently trails projected, the model is optimistic — raise
 .venv/bin/python -m pytest -q      # 145 tests, no network
 ```
 
+Browser tests for the extension are opt-in, since they need a real Chromium and
+take about 80 seconds:
+
+```bash
+uv pip install -e ".[browser]"
+NELLIS_BROWSER_TESTS=1 pytest tests/browser -o asyncio_mode=strict
+```
+
+These load the actual unpacked extension in Chromium and verify it injects its
+panel, finds the max-bid field by heuristics on markup that is *not* a copy of
+Nellis' own, fires the input events that framework-tracked fields require, and —
+most importantly — **never submits a bid on its own**.
+
 Ingestion is fixture-driven; valuation is pure functions. The invariant worth
 knowing about: bidding exactly the recommended max always clears the target
 margin, and one increment above it always breaches — the answer is provably

@@ -1,0 +1,43 @@
+<!doctype html>
+<!--
+  Stand-in for a Nellis lot page, used to test the extension in a real browser.
+
+  Deliberately does NOT copy Nellis markup: the extension is supposed to find the
+  bid field by heuristics rather than by their class names, so testing against a
+  faithful clone would prove the wrong thing. This page uses generic, plausible
+  markup — if the extension can find the field here, it isn't depending on any
+  particular DOM.
+
+  It also mounts the bid form ~400ms late, because the real site is client
+  rendered and the field will not exist when the content script first runs.
+-->
+<html>
+<head><meta charset="utf-8"><title>DeWalt DCD999B Hammer Drill | Nellis Auction</title></head>
+<body style="font-family:-apple-system,sans-serif;max-width:760px;margin:40px auto">
+  <h1>DeWalt DCD999B 20V MAX XR Hammer Drill (Tool Only)</h1>
+  <p>Retail Price: $299.00</p>
+  <p>Current Bid: $12.00</p>
+  <p>Condition: Open Box</p>
+  <div id="bid-area"><em>loading bidding…</em></div>
+
+  <script>
+    // Mount late and with React-style value tracking, so the test exercises
+    // both the retry path and the native-setter workaround in content.js.
+    setTimeout(() => {
+      document.getElementById('bid-area').innerHTML = `
+        <form id="bid-form" onsubmit="event.preventDefault();document.getElementById('placed').textContent='BID PLACED: '+document.getElementById('maxBid').value;">
+          <label for="maxBid">Enter your maximum bid</label>
+          <input type="number" id="maxBid" name="maxBid" placeholder="Max bid" step="1">
+          <button type="submit">Place Bid</button>
+        </form>
+        <p id="placed"></p>`;
+
+      // Mimic a framework that tracks its own value and ignores naive .value sets.
+      const input = document.getElementById('maxBid');
+      let tracked = '';
+      input.addEventListener('input', (e) => { tracked = e.target.value; });
+      window.__trackedValue = () => tracked;
+    }, 400);
+  </script>
+</body>
+</html>
