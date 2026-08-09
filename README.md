@@ -26,20 +26,56 @@ knowing what number to put in. This works out that number.
 
 ---
 
-## Quick start
+## See it work first (no setup, no network)
+
+```bash
+uv venv && uv pip install -e ".[dev]"
+nellis demo --reset
+nellis serve                  # http://127.0.0.1:8787
+```
+
+No credentials, no scraping, nothing to configure. This seeds ~106 closed sales
+across 8 product families — which become **real comps** — plus 14 open lots, and
+runs them through the **real valuation engine**. Nothing is pre-baked; if the
+valuation logic is wrong, the demo shows it being wrong.
+
+The dataset deliberately includes lots that must be **rejected**, so you can see
+the guardrails rather than a curated happy path:
+
+```
+Closed lots (became comps)  106      Recommended            6
+Comps in database           106      Rejected (guardrails)  8
+Open lots valued             14      Repair plays flagged   3
+```
+
+| Lot | Verdict |
+|---|---|
+| Dyson V8, complete | bid up to **$47** — projected +$39.43, HIGH confidence |
+| Dyson V8, missing filter | bid up to **$39** — $14 part, **easy-fix 3.2×**, +$33.90 |
+| Weber grill (local pickup, no fees) | bid up to **$97** — +$80.96 |
+| Sony headphones at $214 | rejected — walk-away is $59 |
+| Milwaukee, missing battery | rejected — $19.79 profit misses the $20 floor |
+| Fridge, dead compressor | rejected — fatal damage, **$0 bid** |
+| Craft supplies, no comps | rejected — cannot value it |
+
+Then `nellis queue`, `nellis digest --dry-run`, and the Portfolio and Analytics
+tabs all have data to look at.
+
+## Going live
 
 ```bash
 cp .env.example .env          # then edit it
-uv venv && uv pip install -e ".[dev]"
-
 nellis init                   # create the database
 nellis doctor                 # ← RUN THIS FIRST, see below
 nellis watch add "Power tools" --keywords "dewalt,milwaukee,makita" \
                                --min-discount 60 --margin 40
 nellis scan                   # find, value, queue
 nellis queue                  # what to go bid on
-nellis serve                  # dashboard at http://127.0.0.1:8787
+nellis serve                  # dashboard + scheduler
 ```
+
+`nellis demo` writes to the same database, so run `nellis demo --reset` or delete
+`data/nellis.db` before switching to real data.
 
 Or with Docker:
 
@@ -69,6 +105,25 @@ If every row shows 0, the site structure changed. The fix is usually one edit:
 add the new field names to `ALIASES` in `src/nellis/ingest/adapter.py`. The
 extraction searches for *field names* anywhere in the payload rather than
 following fixed paths, so it survives most restructuring on its own.
+
+Doctor also writes `fixtures/live/doctor.json`, which is easier to hand to
+someone than a copied terminal table.
+
+### If the parsers need repairing: `nellis record`
+
+```bash
+nellis record            # or: nellis record 1234567
+```
+
+Captures the search page and one lot page through the same polite client, pulls
+out every JSON payload and Remix route ID, reports which fields actually
+resolved, redacts anything credential-shaped, and writes a single
+`fixtures/live/capture.zip`.
+
+That one file is the whole handoff — it contains what's needed to calibrate the
+parsers against real payloads instead of synthetic fixtures. It reads only public
+pages, nothing requiring a login, and `fixtures/live/` is gitignored so a capture
+is never committed by accident.
 
 ---
 
@@ -195,7 +250,7 @@ src/nellis/
   web/         FastAPI + HTMX dashboard
   api/         JSON API for the extension
 extension/     Chrome MV3
-tests/         118 tests, fully offline
+tests/         138 tests, fully offline
 ```
 
 Three interfaces absorb all the volatility: `NellisAdapter` (site changes),
@@ -224,7 +279,7 @@ sold. If actual consistently trails projected, the model is optimistic — raise
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q      # 118 tests, no network
+.venv/bin/python -m pytest -q      # 138 tests, no network
 ```
 
 Ingestion is fixture-driven; valuation is pure functions. The invariant worth

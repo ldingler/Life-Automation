@@ -24,7 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .adapter import LotRecord, SearchFilters
+from .adapter import LotRecord
 from .client import PoliteClient
 from .html_parse import parse_lot_cards
 from .remix_json import discover_route_ids, extract_json_blobs, lots_from_blobs

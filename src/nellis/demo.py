@@ -38,9 +38,9 @@ from .ingest.harvest import record_snapshot, upsert_lot
 from .models import (
     Alert,
     BidQueueEntry,
-    Comp,
     Commitment,
     CommitmentStatus,
+    Comp,
     Lot,
     LotSnapshot,
     PortfolioItem,
