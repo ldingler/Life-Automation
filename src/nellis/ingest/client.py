@@ -6,6 +6,9 @@ Politeness policy — deliberate, and not to be "optimized" away:
   * one connection, serialized requests, fixed delay + jitter
   * ordinary desktop User-Agent, sent honestly and consistently
   * hard STOP on 403/429 — if the site signals "back off", the run ends
+  * hard STOP on repeated 500s too: Nellis uses 500 for rate limiting rather
+    than 429, and that throttle is network-wide — pushing through it locks you
+    out of your own account in the browser, not just the scraper
   * per-run request budget so a bug cannot turn into a hammering loop
   * on-disk response cache so re-running analysis costs zero requests
 
@@ -112,6 +115,7 @@ class PoliteClient:
         self._owns_client = client is None
         self._last_request_at: float = 0.0
         self._requests_made = 0
+        self._consecutive_server_errors = 0
         self._robots: urllib.robotparser.RobotFileParser | None = None
         self._robots_loaded = False
         self._lock = asyncio.Lock()
@@ -219,8 +223,31 @@ class PoliteClient:
                 f"HTTP {resp.status_code} from {url} — the site asked us to back off. "
                 "Stopping this run. Increase REQUEST_DELAY_SECONDS before retrying."
             )
+
+        # Nellis signals rate limiting with 500, not 429. Their help centre is
+        # explicit: "Code 500 errors typically occur when too many requests come
+        # from the same network." Treating 500 as an ordinary retryable server
+        # error would let a scan keep hammering the very throttle it tripped —
+        # and that throttle is network-wide, so it locks you out of your own
+        # account in the browser too, not just the scraper.
         if resp.status_code >= 500:
-            raise IngestError(f"HTTP {resp.status_code} from {url}")
+            self._consecutive_server_errors += 1
+            if self._consecutive_server_errors >= self.settings.server_error_stop_threshold:
+                raise BlockedError(
+                    f"HTTP {resp.status_code} from {url}, "
+                    f"{self._consecutive_server_errors} in a row — on Nellis this means "
+                    "rate limiting, not an outage. Stopping this run.\n"
+                    "Wait ~15 minutes before retrying, raise REQUEST_DELAY_SECONDS, "
+                    "and close other tabs/devices hitting Nellis on this network. "
+                    "A VPN (especially non-US) also triggers it."
+                )
+            raise IngestError(
+                f"HTTP {resp.status_code} from {url} "
+                f"({self._consecutive_server_errors} consecutive; "
+                f"stopping at {self.settings.server_error_stop_threshold})"
+            )
+
+        self._consecutive_server_errors = 0
 
         fetched = Fetched(url=str(resp.url), status=resp.status_code, text=resp.text)
         if use_cache and resp.status_code == 200:

@@ -45,6 +45,10 @@ class Settings(BaseSettings):
         "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
     )
     respect_robots_txt: bool = True
+    # Nellis returns 500 (not 429) when rate limiting. Stop the run after this
+    # many consecutive server errors rather than pushing through a throttle that
+    # is network-wide and will lock the browser out too.
+    server_error_stop_threshold: int = 3
     cache_ttl_seconds: int = 300
     enable_browser_fallback: bool = False
 

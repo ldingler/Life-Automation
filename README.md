@@ -243,6 +243,7 @@ identically no matter which directory you run it from. Output always lands in
 
 | Symptom | Cause |
 |---|---|
+| Can't log in to nellisauction.com, "Error Code: 500-NLS" | Nellis rate-limits by network and reports it as a 500. Turn off any VPN, close other tabs/devices hitting Nellis, wait ~15 min. Not a ban — the mobile app will still work. |
 | `SyntaxError` deep in a dependency | Python 3.9 (the macOS system one). Use 3.11+. |
 | `Address already in use` | Something's on 8787 — `nellis serve --port 8788` |
 | Dashboard is empty | Run `nellis demo --reset`, or `nellis scan` for live data |
@@ -291,7 +292,7 @@ src/nellis/
   web/         FastAPI + HTMX dashboard
   api/         JSON API for the extension
 extension/     Chrome MV3
-tests/         145 tests, fully offline
+tests/         147 tests, fully offline
 ```
 
 Three interfaces absorb all the volatility: `NellisAdapter` (site changes),
@@ -320,7 +321,7 @@ sold. If actual consistently trails projected, the model is optimistic — raise
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q      # 145 tests, no network
+.venv/bin/python -m pytest -q      # 147 tests, no network
 ```
 
 Browser tests for the extension are opt-in, since they need a real Chromium and

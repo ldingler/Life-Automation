@@ -13,7 +13,7 @@ from nellis.ingest.adapter import (
     parse_rate,
     record_from_payload,
 )
-from nellis.ingest.client import BlockedError, BudgetExhausted, PoliteClient
+from nellis.ingest.client import BlockedError, BudgetExhausted, IngestError, PoliteClient
 from nellis.ingest.html_parse import parse_lot_cards
 from nellis.ingest.remix_json import (
     EmbeddedJsonAdapter,
@@ -132,6 +132,46 @@ class TestPoliteClient:
         client = await self._client(lambda req: httpx.Response(403, text="no"))
         with pytest.raises(BlockedError):
             await client.get("/search")
+
+    @pytest.mark.asyncio
+    async def test_repeated_500s_abort_the_run(self):
+        """Nellis rate-limits with 500, not 429.
+
+        Their help centre states 500s mean "too many requests from the same
+        network". That throttle is network-wide, so grinding through it locks
+        the operator out of nellisauction.com in their own browser — which is
+        exactly what happened in practice. A few 500s must end the run.
+        """
+        client = await self._client(lambda req: httpx.Response(500, text="boom"))
+        client.settings.server_error_stop_threshold = 3
+
+        for _ in range(2):
+            with pytest.raises(IngestError) as first:
+                await client.get("/search", use_cache=False)
+            assert not isinstance(first.value, BlockedError)
+
+        with pytest.raises(BlockedError, match="rate limiting"):
+            await client.get("/search", use_cache=False)
+
+    @pytest.mark.asyncio
+    async def test_a_success_resets_the_500_counter(self):
+        """Isolated blips must not accumulate into a false stop."""
+        responses = [500, 200, 500, 500]
+
+        def handler(request):
+            return httpx.Response(responses.pop(0), text="x")
+
+        client = await self._client(handler)
+        client.settings.server_error_stop_threshold = 3
+
+        with pytest.raises(IngestError):
+            await client.get("/a", use_cache=False)
+        await client.get("/b", use_cache=False)  # success clears the streak
+
+        for path in ("/c", "/d"):
+            with pytest.raises(IngestError) as exc:
+                await client.get(path, use_cache=False)
+            assert not isinstance(exc.value, BlockedError), "counter did not reset"
 
     @pytest.mark.asyncio
     async def test_request_budget_is_enforced(self, monkeypatch):
