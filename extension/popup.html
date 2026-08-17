@@ -50,10 +50,23 @@
     </label>
   </div>
 
+  <div class="chk">
+    <input type="checkbox" id="shopperEnabled">
+    <label for="shopperEnabled" style="margin:0;color:inherit;font-weight:400">
+      Check retail prices for me in the background
+      <span style="display:block;color:#8a94a0;font-size:10.5px;margin-top:2px">
+        Opens an Amazon / Walmart / Marketplace search in a background tab, reads
+        the prices, closes it. A few searches an hour, one at a time. If a site
+        shows a CAPTCHA it stops for that site — it never tries to get around one.
+      </span>
+    </label>
+  </div>
+
   <button id="save">Save</button>
   <button class="alt" id="capture">Import this page</button>
   <button class="alt" id="openQueue">Open bid queue</button>
   <div class="status" id="status"></div>
+  <div class="status" id="lookupStatus" style="color:#6b7684"></div>
 
   <div class="note">
     Shows your own valuation and fills in the max-bid box. It never bids on its

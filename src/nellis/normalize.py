@@ -29,6 +29,19 @@ STOPWORDS = {
 
 # A model number: has a digit, is alphanumeric, 3+ chars. "DCD999B", "M18", "RT2100".
 MODEL_TOKEN_RE = re.compile(r"^(?=.*\d)[a-z0-9][a-z0-9\-]{2,}$")
+
+# ...but a measurement is not a model number, and treating it as one is worse
+# than finding no model at all. "20V" appears in the title of every 20V tool
+# ever made, so matching on it would say a Ryobi drill and a DeWalt drill are
+# the same product. Pack counts do the opposite damage: "(2-Pack)" looks like a
+# model number the other listing doesn't have, so a perfectly good comparable
+# gets thrown out as a different product.
+SPEC_TOKEN_RE = re.compile(
+    r"^\d+(?:\.\d+)?-?"
+    r"(?:v|w|kw|wh|ah|mah|hz|khz|ghz|mhz|mm|cm|in|inch|inches|ft|oz|lb|lbs|kg|"
+    r"ml|qt|gal|pt|hp|psi|rpm|btu|tb|gb|mb|cc|mph|k|p|ct|pk|pack|packs|pcs|"
+    r"piece|pieces|count|quart|gallon|amp|amps|volt|volts|watt|watts)$"
+)
 PUNCT_RE = re.compile(r"[^\w\s\-]")
 WS_RE = re.compile(r"\s+")
 
@@ -52,9 +65,12 @@ def significant_tokens(text: str, limit: int = 6) -> list[str]:
 def extract_model_numbers(text: str) -> list[str]:
     """Model-like tokens, most specific (longest) first."""
     candidates = [t for t in tokenize(text) if MODEL_TOKEN_RE.match(t)]
-    # Pure years and prices are not model numbers.
+    # Pure years, prices, measurements and pack counts are not model numbers.
     filtered = [
-        c for c in candidates if not (c.isdigit() and (len(c) == 4 and c.startswith(("19", "20"))))
+        c
+        for c in candidates
+        if not (c.isdigit() and len(c) == 4 and c.startswith(("19", "20")))
+        and not SPEC_TOKEN_RE.match(c)
     ]
     return sorted(set(filtered), key=lambda c: (-len(c), c))
 

@@ -122,6 +122,7 @@ class ValuationEngine:
     ):
         self.session = session
         self.settings = settings or get_settings()
+        self.offline = offline
         self.comps = comps_service or CompsService(session, self.settings, offline=offline)
         self.parts = parts_provider or self._default_parts_provider(offline)
 
@@ -133,6 +134,20 @@ class ValuationEngine:
             providers.append(EbayPartsProvider(self.session, self.settings))
         providers.append(CatalogPartsProvider(self.session))
         return CompositePartsProvider(providers)
+
+    def _request_price_lookup(self, lot: Lot) -> None:
+        """Queue a browser price check. Never blocks a valuation.
+
+        Failure here is genuinely unimportant — the worst case is that this lot
+        stays unverified and keeps the conservative haircut, which is the
+        correct treatment for a price nobody has checked.
+        """
+        try:
+            from ..market.jobs import enqueue_for_lot
+
+            enqueue_for_lot(self.session, lot)
+        except Exception:  # pragma: no cover - never break valuation over this
+            log.debug("could not queue a price lookup for %s", lot.nellis_id, exc_info=True)
 
     async def value(
         self,
@@ -272,6 +287,12 @@ class ValuationEngine:
         # matter how good the discount-off-retail looks.
         market = market_view_for_lot(self.session, lot)
         ceiling = apply_ceiling(market, landed.total)
+
+        # If we've never actually checked what this costs elsewhere, ask the
+        # browser to go look. It happens out of band — this valuation stands on
+        # what we know now, and improves when the answer lands.
+        if not self.offline and not market.has_exact:
+            self._request_price_lookup(lot)
 
         if not ceiling.allowed and ceiling.ceiling is not None:
             # Re-solve against the cheaper of our margin ceiling and the market's.

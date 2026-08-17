@@ -203,6 +203,47 @@ Confidence is scored from comp count, price dispersion, recency and source
 agreement. Low confidence doesn't block a deal — it *raises the required margin*,
 so uncertainty costs money instead of being ignored.
 
+### Where those prices come from: your browser
+
+Stated retail on a liquidation listing is right maybe half the time, so every
+lot gets checked against real listings. None of the sites that matter will give
+out a price API — Amazon's Product Advertising API needs an Associate account
+with qualifying sales, Walmart's needs partner approval, Facebook Marketplace
+has no public API at all — so the check runs the way a person would run it.
+
+The extension opens a search page **in your own browser, in your own session**,
+reads the results, and closes the tab. Turn it on in the popup ("Check retail
+prices for me in the background"); it's off until you do.
+
+The pacing is the whole design, and it lives on the engine side so loosening it
+means editing `.env` on purpose:
+
+| Rule | Default | Why |
+|---|---|---|
+| One search at a time | always | Never concurrent tabs, never a burst |
+| Gap between any two searches | 45s | A person comparison-shopping, not a crawler |
+| Gap between two searches at the *same* site | 3 min | Per-site is what sites actually measure |
+| Daily ceiling | 120 | A hard stop, not a target |
+| A site shows a CAPTCHA | that site sleeps 6h | **See below** |
+
+That last row is not a backoff-and-retry. A CAPTCHA is a site saying *stop*, and
+the response is to stop — there is no solver here, no retry loop, no second path
+in. If verification coverage suffers, thinner coverage is the honest outcome,
+and `nellis lookups` shows you exactly which site is quiet and why.
+
+What comes back is raw: a title, a price, maybe a rating. Everything that
+decides what a card *means* happens server-side in `market/classify.py`, where
+it's tested without a browser — because a search page is mostly accessories,
+knock-offs and multi-packs, and a $12 "case for DeWalt DCD777C2" masquerading as
+the price of the drill would wreck every valuation downstream. Accessories are
+rejected, multi-packs are divided down to unit price, a rival brand becomes a
+*substitute* rather than a verification, and anything from a different product
+class is thrown out.
+
+```bash
+nellis lookups     # what's been checked, what's queued, what's backed off
+```
+
 ---
 
 ## Exposure control
@@ -283,6 +324,17 @@ ordered worklist. You click Place Bid; it never does.
 Set the engine address to `http://127.0.0.1:8787` and paste your `API_TOKEN` if
 you set one.
 
+Three optional toggles, all off by default:
+
+- **Enter key places the bid** — a shortcut for the click you'd make anyway.
+- **Auto-import history / cart / list pages** — otherwise an Import button
+  appears and nothing is sent until you click it.
+- **Check retail prices in the background** — the price lookups described
+  [above](#where-those-prices-come-from-your-browser). This is the only thing in
+  the extension that opens a page by itself, and it only ever opens Amazon,
+  Walmart and Facebook Marketplace searches. Nothing automated ever touches
+  Nellis.
+
 ---
 
 ## Comps sources
@@ -292,7 +344,8 @@ you set one.
 | **Nellis close history** | yes | Free, unlimited, highest signal. Empty on day one, compounds from there. Leave `nellis serve` running. |
 | **eBay Browse API** | yes | Free dev account. Returns *active* listings — asking prices, so they're discounted and down-weighted. |
 | eBay Marketplace Insights | no | True sold comps, but **partner approval only**. Set `EBAY_USE_INSIGHTS=true` if you're granted it. |
-| **CSV import** | manual | `nellis comps import prices.csv`. The supported path for Facebook Marketplace, which has no public API and blocks scraping. |
+| **Browser lookups** | yes | Amazon / Walmart / Facebook Marketplace read through your own session, paced like a person. See [above](#where-those-prices-come-from-your-browser). |
+| **CSV import** | manual | `nellis comps import prices.csv`. |
 | Local feed | optional | Craigslist discontinued native RSS; point `LOCAL_COMPS_FEED_URL` at a feed service if you want one. |
 
 Day one leans on eBay and reports LOW confidence honestly. After a few weeks of
@@ -310,9 +363,12 @@ src/nellis/
   notify/      Jinja2 HTML emails + dedupe
   scheduler/   APScheduler jobs
   web/         FastAPI + HTMX dashboard
+  market/      what it costs to buy elsewhere: verify · classify · lookup queue
+  books/       purpose, savings and sold tracking
+  wants/       personal need matching and satiation
   api/         JSON API for the extension
-extension/     Chrome MV3
-tests/         264 tests, fully offline
+extension/     Chrome MV3 — panel, capture, price shopper
+tests/         300 tests, fully offline
 ```
 
 Three interfaces absorb all the volatility: `NellisAdapter` (site changes),

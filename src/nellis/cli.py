@@ -788,5 +788,70 @@ def queue(limit: int = typer.Option(20)) -> None:
         )
 
 
+@app.command()
+def lookups(limit: int = typer.Option(20)) -> None:
+    """Show price-verification progress, and any site currently backed off.
+
+    Verification runs through your own browser, so it's paced like a person:
+    a few searches an hour, one at a time. This is where you see whether that's
+    actually happening or whether a site has told us to stop.
+    """
+    from .market.jobs import queue_status
+    from .models import LookupJob
+
+    init_db()
+    with session_scope() as session:
+        status = queue_status(session)
+
+        if not status["enabled"]:
+            console.print("[yellow]Price lookups are switched off[/] (LOOKUP_ENABLED=false)\n")
+
+        console.print(
+            f"[bold]{status['searches_last_24h']}[/]/{status['daily_limit']} searches in the "
+            f"last 24h · {status['counts'].get('pending', 0)} queued\n"
+        )
+
+        sites = Table("site", "enabled", "last search", "state")
+        for entry in status["sites"]:
+            blocked = entry["blocked_until"]
+            sites.add_row(
+                entry["site"],
+                "yes" if entry["enabled"] else "no",
+                (entry["last_search"] or "—")[:16].replace("T", " "),
+                f"[red]backed off until {blocked[11:16]}[/]" if blocked else "[green]ok[/]",
+            )
+        console.print(sites)
+
+        recent = session.scalars(
+            select(LookupJob).order_by(LookupJob.id.desc()).limit(limit)
+        ).all()
+        if not recent:
+            console.print(
+                "\n[dim]Nothing queued yet. Lookups are created when a lot is valued "
+                "and no recent price is on file.[/]"
+            )
+            return
+
+        table = Table("status", "site", "found", "query", "note", title="Recent lookups")
+        colour = {
+            "done": "green",
+            "empty": "yellow",
+            "blocked": "red",
+            "failed": "red",
+            "pending": "cyan",
+            "leased": "cyan",
+        }
+        for job in recent:
+            state = job.status.value
+            table.add_row(
+                f"[{colour.get(state, 'white')}]{state}[/]",
+                job.site.value,
+                str(job.recorded or ""),
+                job.query[:38],
+                (job.note or "")[:44],
+            )
+        console.print(table)
+
+
 if __name__ == "__main__":
     app()

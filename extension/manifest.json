@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Nellis Deal Engine",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Shows your own valuation and walk-away max bid on Nellis lot pages, and pre-fills the max-bid field. You place every bid yourself.",
   "permissions": [
     "activeTab",
+    "alarms",
     "scripting",
     "storage",
     "tabs"
@@ -17,6 +18,7 @@
     "https://nellisauction.com/*",
     "https://www.amazon.com/*",
     "https://www.bestbuy.com/*",
+    "https://www.facebook.com/*",
     "https://www.homedepot.com/*",
     "https://www.lowes.com/*",
     "https://www.nellisauction.com/*",
@@ -59,6 +61,17 @@
       ],
       "js": [
         "capture.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.amazon.com/s*",
+        "https://www.walmart.com/search*",
+        "https://www.facebook.com/marketplace/*"
+      ],
+      "js": [
+        "shopper.js"
       ],
       "run_at": "document_idle"
     }

@@ -658,3 +658,74 @@ class MarketPrice(Base):
     @property
     def total_price(self) -> float:
         return self.price + (self.shipping or 0.0)
+
+
+# --------------------------------------------------------------------------
+# Getting those prices, without an API
+# --------------------------------------------------------------------------
+
+
+class LookupSite(str, enum.Enum):
+    """Where to go looking for a price.
+
+    No API keys anywhere in this list. Every one of these is read out of a
+    normal, already-logged-in browser session, from a page the operator could
+    have opened by hand.
+    """
+
+    AMAZON = "amazon"
+    WALMART = "walmart"
+    FACEBOOK = "facebook"
+
+
+class LookupStatus(str, enum.Enum):
+    PENDING = "pending"
+    LEASED = "leased"      # handed to the browser, not yet reported back
+    DONE = "done"
+    EMPTY = "empty"        # searched fine, found nothing usable
+    BLOCKED = "blocked"    # the site asked us to stop; we stopped
+    FAILED = "failed"
+
+
+class LookupJob(Base):
+    """One "go look this up" instruction for the browser.
+
+    The queue exists because the alternative — this app fetching retailer pages
+    itself — needs credentials nobody will grant and produces a request pattern
+    that looks nothing like a person. This way the only thing that ever touches
+    Amazon or Facebook is the operator's own browser, at the operator's own
+    pace, in the operator's own session, and it stops the moment a site signals
+    it would rather we didn't.
+    """
+
+    __tablename__ = "lookup_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    lot_id: Mapped[int | None] = mapped_column(
+        ForeignKey("lots.id", ondelete="CASCADE"), default=None, index=True
+    )
+    query_key: Mapped[str] = mapped_column(String(256), index=True)
+    query: Mapped[str] = mapped_column(String(256))
+    site: Mapped[LookupSite] = mapped_column(Enum(LookupSite, native_enum=False), index=True)
+    status: Mapped[LookupStatus] = mapped_column(
+        Enum(LookupStatus, native_enum=False), default=LookupStatus.PENDING, index=True
+    )
+
+    # Priority is "how much does the answer change what we'd do" — a lot closing
+    # in an hour with $400 on the table outranks idle curiosity.
+    priority: Mapped[float] = mapped_column(Float, default=0.0, index=True)
+
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    recorded: Mapped[int] = mapped_column(Integer, default=0)  # prices actually stored
+    note: Mapped[str | None] = mapped_column(String(512), default=None)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    leased_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+    lot: Mapped[Lot | None] = relationship("Lot")
+
+    __table_args__ = (
+        Index("ix_lookup_status_priority", "status", "priority"),
+        Index("ix_lookup_site_finished", "site", "finished_at"),
+    )

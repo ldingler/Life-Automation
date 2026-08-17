@@ -84,6 +84,39 @@ class Settings(BaseSettings):
     comps_max_age_days: int = 120
     comps_min_sample: int = 3
 
+    # ---- browser price lookups -------------------------------------------
+    # Retail verification runs through the operator's own browser, because none
+    # of these sites will hand out an API: Amazon's PA-API needs an Associate
+    # account with qualifying sales, Walmart's needs partner approval, Facebook
+    # Marketplace has no public API at all. So the extension opens a search page
+    # the operator could have opened by hand, reads it, and closes it.
+    #
+    # These defaults are pedestrian on purpose. One tab at a time, minutes
+    # between searches, a hard daily ceiling. The point is to look like someone
+    # comparison-shopping, because that is exactly what this is — not to look
+    # like something else.
+    lookup_enabled: bool = True
+    lookup_sites: str = "amazon,walmart,facebook"
+    lookup_min_seconds_between: float = 45.0     # any two searches, any site
+    lookup_site_min_seconds: float = 180.0       # two searches at the SAME site
+    lookup_jitter_seconds: float = 30.0
+    lookup_max_per_day: int = 120
+    lookup_max_attempts: int = 2
+    lookup_lease_timeout_seconds: float = 300.0  # tab died? put the job back
+    # When a site shows a CAPTCHA or a "we noticed unusual activity" wall we
+    # back off entirely for this long. We do not solve it and do not retry
+    # around it.
+    lookup_block_cooldown_minutes: int = 360
+    market_price_ttl_days: int = 21              # re-check a price older than this
+    lookup_max_results_per_search: int = 12
+    # Overridable so a site changing its URL scheme is a .env edit, not a patch.
+    # {q} is the URL-encoded query.
+    amazon_search_template: str = "https://www.amazon.com/s?k={q}"
+    walmart_search_template: str = "https://www.walmart.com/search?q={q}"
+    facebook_search_template: str = (
+        "https://www.facebook.com/marketplace/search/?query={q}&radius_km=24"
+    )
+
     # ---- notifications ---------------------------------------------------
     smtp_host: str | None = None
     smtp_port: int = 587
@@ -114,6 +147,10 @@ class Settings(BaseSettings):
         if not 0.0 <= v < 1.0:
             raise ValueError(f"rate must be in [0, 1), got {v}")
         return v
+
+    @property
+    def enabled_lookup_sites(self) -> list[str]:
+        return [s.strip().lower() for s in self.lookup_sites.split(",") if s.strip()]
 
     @property
     def email_recipients(self) -> list[str]:

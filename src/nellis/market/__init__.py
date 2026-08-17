@@ -17,11 +17,43 @@ from .alternatives import (
     build_market_view,
     verify_retail,
 )
+from .classify import Rejected, classify_all, classify_candidate
+from .jobs import (
+    LeasedJob,
+    LookupResult,
+    Pacing,
+    check_pacing,
+    complete,
+    enqueue_for_lot,
+    lease_next,
+    mark_blocked,
+    mark_failed,
+    priority_for_lot,
+    queue_status,
+    reclaim_stale,
+    search_url,
+)
 from .lookup import market_view_for_lot, record_prices
 
 __all__ = [
     "market_view_for_lot",
     "record_prices",
+    "Rejected",
+    "classify_all",
+    "classify_candidate",
+    "LeasedJob",
+    "LookupResult",
+    "Pacing",
+    "check_pacing",
+    "complete",
+    "enqueue_for_lot",
+    "lease_next",
+    "mark_blocked",
+    "mark_failed",
+    "priority_for_lot",
+    "queue_status",
+    "reclaim_stale",
+    "search_url",
     "MIN_SUBSTITUTE_RATING",
     "MIN_SUBSTITUTE_REVIEWS",
     "NEW_ALTERNATIVE_MARGIN",

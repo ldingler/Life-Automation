@@ -84,6 +84,15 @@ class MarketView:
     notes: list[str] = field(default_factory=list)
 
     @property
+    def has_exact(self) -> bool:
+        """Have we actually seen this item for sale somewhere, recently?
+
+        False means nothing has been verified — the stated retail is still just
+        a claim on a liquidation listing.
+        """
+        return self.exact_new_price is not None
+
+    @property
     def opportunity_ceiling(self) -> float | None:
         """The most it can make sense to pay landed, given the alternatives.
 

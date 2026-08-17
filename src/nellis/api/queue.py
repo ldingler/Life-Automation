@@ -440,3 +440,158 @@ def ingest_market_prices(
 
     added = record_prices(session, key, payload.records)
     return {"query_key": key, "added": added, "received": len(payload.records)}
+
+
+# --------------------------------------------------------------------------
+# Browser-driven price lookups
+# --------------------------------------------------------------------------
+
+
+class LookupJobOut(BaseModel):
+    """One search for the browser to run. At most one is ever outstanding."""
+
+    job_id: int
+    site: str
+    query: str
+    query_key: str
+    url: str
+    lot_id: str | None = None
+    lot_title: str | None = None
+
+
+class LookupLeaseOut(BaseModel):
+    job: LookupJobOut | None = None
+    reason: str
+    retry_after_seconds: float = 60.0
+
+
+class LookupResultIn(BaseModel):
+    candidates: list[dict] = Field(default_factory=list)
+
+
+class LookupProblemIn(BaseModel):
+    reason: str = "unspecified"
+
+
+@router.get("/market/jobs", response_model=LookupLeaseOut)
+def lease_lookup_job(
+    session: Session = Depends(get_db),
+    _: None = Depends(require_token),
+) -> LookupLeaseOut:
+    """Ask for the next price lookup to run in the browser.
+
+    Returns at most one job, and often none — the pacing rules are enforced
+    here rather than in the extension, so loosening them means editing settings
+    on purpose, not tweaking a number in a content script. When the answer is
+    "not yet", `reason` says why and `retry_after_seconds` says how long to
+    wait, because an unexplained empty response just makes a poller poll harder.
+    """
+    from ..market.jobs import lease_next
+
+    leased, pacing = lease_next(session)
+    if leased is None:
+        return LookupLeaseOut(
+            job=None,
+            reason=pacing.reason,
+            retry_after_seconds=max(30.0, pacing.retry_after_seconds or 60.0),
+        )
+    return LookupLeaseOut(
+        job=LookupJobOut(
+            job_id=leased.job_id,
+            site=leased.site,
+            query=leased.query,
+            query_key=leased.query_key,
+            url=leased.url,
+            lot_id=leased.lot_id,
+            lot_title=leased.lot_title,
+        ),
+        reason="ok",
+        retry_after_seconds=0.0,
+    )
+
+
+def _job_or_404(session: Session, job_id: int):
+    from ..models import LookupJob
+
+    job = session.get(LookupJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="lookup job not found")
+    return job
+
+
+@router.post("/market/jobs/{job_id}/result")
+def report_lookup_result(
+    job_id: int,
+    payload: LookupResultIn,
+    session: Session = Depends(get_db),
+    _: None = Depends(require_token),
+) -> dict:
+    """Hand back the search results the browser read off the page.
+
+    The extension sends raw cards and makes no judgements. Deciding whether a
+    card is the same product, a fair substitute or a $12 accessory happens
+    server-side in `market.classify`, where it is covered by tests that don't
+    need a browser.
+    """
+    from ..market.jobs import complete
+
+    job = _job_or_404(session, job_id)
+    result = complete(session, job, payload.candidates)
+    return {
+        "job_id": result.job_id,
+        "status": result.status,
+        "recorded": result.recorded,
+        "received": len(payload.candidates),
+        "rejected": result.rejected,
+    }
+
+
+@router.post("/market/jobs/{job_id}/blocked")
+def report_lookup_blocked(
+    job_id: int,
+    payload: LookupProblemIn,
+    session: Session = Depends(get_db),
+    _: None = Depends(require_token),
+) -> dict:
+    """The site put up a CAPTCHA or an unusual-activity wall.
+
+    This is a full stop for that site, not a retry signal. Nothing here solves
+    the challenge, changes identity, or tries a different path in.
+    """
+    from ..market.jobs import mark_blocked
+
+    job = _job_or_404(session, job_id)
+    mark_blocked(session, job, payload.reason)
+    settings = get_settings()
+    return {
+        "job_id": job.id,
+        "status": job.status.value,
+        "site": job.site.value,
+        "cooldown_minutes": settings.lookup_block_cooldown_minutes,
+    }
+
+
+@router.post("/market/jobs/{job_id}/failed")
+def report_lookup_failed(
+    job_id: int,
+    payload: LookupProblemIn,
+    session: Session = Depends(get_db),
+    _: None = Depends(require_token),
+) -> dict:
+    """Ordinary failure — page didn't load, layout unrecognized, tab closed."""
+    from ..market.jobs import mark_failed
+
+    job = _job_or_404(session, job_id)
+    mark_failed(session, job, payload.reason)
+    return {"job_id": job.id, "status": job.status.value}
+
+
+@router.get("/market/status")
+def read_lookup_status(
+    session: Session = Depends(get_db),
+    _: None = Depends(require_token),
+) -> dict:
+    """Queue depth, today's search count, and any site currently backed off."""
+    from ..market.jobs import queue_status
+
+    return queue_status(session)
