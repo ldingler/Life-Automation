@@ -15,6 +15,13 @@ from sqlalchemy.orm import Session
 
 from ..api.queue import get_db
 from ..api.queue import router as api_router
+from ..books import (
+    apply_to_item,
+    categorise,
+    mss_category_label,
+    purpose_label,
+    total_savings,
+)
 from ..config import get_settings
 from ..db import init_db
 from ..models import (
@@ -22,9 +29,12 @@ from ..models import (
     Comp,
     Lot,
     LotSnapshot,
+    MssCategory,
     PortfolioItem,
+    Purpose,
     QueueStatus,
     Valuation,
+    ValueBasis,
     Watch,
     WatchMatch,
 )
@@ -283,7 +293,182 @@ def create_app() -> FastAPI:
                 item.sold_at = datetime.now(UTC)
         return RedirectResponse("/portfolio", status_code=303)
 
+
+    # ---- purchases & books ----------------------------------------------
+
+    @app.get("/purchases", response_class=HTMLResponse)
+    def purchases(
+        request: Request,
+        session: Session = Depends(get_db),
+        purpose: str = "",
+        status: str = "",
+    ):
+        settings = get_settings()
+        rows = session.scalars(
+            select(PortfolioItem).order_by(PortfolioItem.created_at.desc())
+        ).all()
+
+        # Backfill savings for anything not yet costed, so the dashboard is
+        # never blank just because an import predated the savings model.
+        for item in rows:
+            if item.savings is None and item.value_basis == ValueBasis.NONE:
+                lot = session.get(Lot, item.lot_id)
+                valuation = _latest_valuation(session, item.lot_id) if lot else None
+                apply_to_item(
+                    item,
+                    retail_price=lot.retail_price if lot else None,
+                    comp_value=valuation.comp_value if valuation else None,
+                    comp_count=valuation.comp_count if valuation else 0,
+                    bp_rate=(lot.buyers_premium_rate if lot else None)
+                    or settings.default_buyers_premium,
+                    tax_rate=settings.sales_tax_rate,
+                )
+
+        totals = total_savings(rows)
+
+        items = []
+        for item in rows:
+            lot = session.get(Lot, item.lot_id)
+            if purpose and item.purpose.value != purpose:
+                continue
+            if status == "sold" and item.sold_price is None:
+                continue
+            if status == "held" and item.sold_price is not None:
+                continue
+            items.append({
+                "id": item.id,
+                "nellis_id": lot.nellis_id if lot else "?",
+                "title": lot.title if lot else "(unknown lot)",
+                "hammer_price": item.hammer_price,
+                "landed_cost": item.landed_cost,
+                "reference_value": item.reference_value,
+                "savings": item.savings,
+                "basis": item.value_basis.value,
+                "purpose": item.purpose.value,
+                "mss_category": item.mss_category.value if item.mss_category else "",
+                "sold_price": item.sold_price,
+                "sold_channel": item.sold_channel,
+                "realized_profit": item.realized_profit,
+            })
+
+        # Spend and savings grouped by where it landed in the books.
+        grouped: dict[tuple, dict] = {}
+        for item in rows:
+            key = (item.purpose, item.mss_category)
+            bucket = grouped.setdefault(key, {
+                "purpose_label": purpose_label(item.purpose),
+                "mss_label": mss_category_label(item.mss_category),
+                "count": 0, "spent": 0.0, "savings": 0.0,
+            })
+            bucket["count"] += 1
+            bucket["spent"] += (item.landed_cost or 0.0) + (item.repair_spend or 0.0)
+            bucket["savings"] += item.savings or 0.0
+
+        grand_total = sum(b["spent"] for b in grouped.values()) or 1.0
+        by_category = sorted(grouped.values(), key=lambda b: -b["spent"])
+        for bucket in by_category:
+            bucket["share"] = bucket["spent"] / grand_total
+
+        sold = [r for r in rows if r.sold_price is not None]
+        held = [r for r in rows if r.sold_price is None]
+        stats = {
+            "sold_count": len(sold),
+            "held_count": len(held),
+            "held_cost": sum(r.landed_cost for r in held),
+            "revenue": sum(r.sold_price for r in sold),
+            "realized_profit": sum(r.realized_profit or 0.0 for r in sold),
+        }
+
+        context = base_context(request, session, "purchases")
+        context.update(
+            items=items, totals=totals, by_category=by_category, stats=stats,
+            purposes=[(p.value, purpose_label(p)) for p in Purpose],
+            mss_categories=[(c.value, mss_category_label(c)) for c in MssCategory],
+            purpose_filter=purpose, status_filter=status,
+            bp_rate=settings.default_buyers_premium,
+            tax_rate=settings.sales_tax_rate,
+            multiplier=cost_multiplier(settings.default_buyers_premium, settings.sales_tax_rate),
+        )
+        return TEMPLATES.TemplateResponse(request, "purchases.html", context)
+
+    @app.post("/purchases/{item_id}/categorise")
+    def categorise_purchase(
+        item_id: int,
+        session: Session = Depends(get_db),
+        purpose: str = Form(""),
+        mss_category: str = Form(""),
+    ):
+        item = session.get(PortfolioItem, item_id)
+        if item is not None:
+            if purpose:
+                item.purpose = Purpose(purpose)
+            item.mss_category = MssCategory(mss_category) if mss_category else None
+            # A human decided; the classifier must not undo it later.
+            item.purpose_locked = True
+        return RedirectResponse("/purchases", status_code=303)
+
+    @app.post("/purchases/{item_id}/sell")
+    def sell_purchase(
+        item_id: int,
+        session: Session = Depends(get_db),
+        sold_price: float = Form(...),
+        sold_fees: float = Form(0.0),
+        sold_channel: str = Form(""),
+    ):
+        item = session.get(PortfolioItem, item_id)
+        if item is not None:
+            item.sold_price = sold_price
+            item.sold_fees = sold_fees or 0.0
+            item.sold_channel = sold_channel or None
+            item.sold_at = datetime.now(UTC)
+        return RedirectResponse("/purchases", status_code=303)
+
+    @app.post("/purchases/add")
+    def add_purchase(
+        session: Session = Depends(get_db),
+        nellis_id: str = Form(...),
+        hammer_price: float = Form(...),
+        purpose: str = Form(""),
+    ):
+        settings = get_settings()
+        lot = session.scalar(select(Lot).where(Lot.nellis_id == nellis_id.strip()))
+        if lot is None:
+            return RedirectResponse("/purchases", status_code=303)
+
+        bp = lot.buyers_premium_rate or settings.default_buyers_premium
+        landed = landed_cost(
+            hammer_price, bp_rate=bp, tax_rate=settings.sales_tax_rate,
+            pickup=settings.pickup_cost,
+        )
+        valuation = _latest_valuation(session, lot.id)
+
+        if purpose:
+            chosen, mss_cat, locked = Purpose(purpose), None, True
+        else:
+            guess = categorise(
+                lot.title, category=lot.category, description=lot.description,
+                price=hammer_price,
+                projected_profit=valuation.projected_profit if valuation else None,
+            )
+            chosen, mss_cat, locked = guess.purpose, guess.mss_category, False
+
+        item = PortfolioItem(
+            lot_id=lot.id, hammer_price=hammer_price, landed_cost=landed.total,
+            projected_profit=valuation.projected_profit if valuation else None,
+            purpose=chosen, mss_category=mss_cat, purpose_locked=locked,
+        )
+        session.add(item)
+        apply_to_item(
+            item,
+            retail_price=lot.retail_price,
+            comp_value=valuation.comp_value if valuation else None,
+            comp_count=valuation.comp_count if valuation else 0,
+            bp_rate=bp, tax_rate=settings.sales_tax_rate,
+        )
+        return RedirectResponse("/purchases", status_code=303)
+
     # ---- analytics ------------------------------------------------------
+
 
     @app.get("/analytics", response_class=HTMLResponse)
     def analytics(request: Request, session: Session = Depends(get_db)):

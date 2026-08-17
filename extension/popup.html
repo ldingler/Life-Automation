@@ -39,13 +39,28 @@
     </label>
   </div>
 
+  <div class="chk">
+    <input type="checkbox" id="autoCapture">
+    <label for="autoCapture" style="margin:0;color:inherit;font-weight:400">
+      Auto-import when I open a history / cart / list page
+      <span style="display:block;color:#8a94a0;font-size:10.5px;margin-top:2px">
+        Off by default. When off, an Import button appears instead and nothing
+        is sent until you click it.
+      </span>
+    </label>
+  </div>
+
   <button id="save">Save</button>
+  <button class="alt" id="capture">Import this page</button>
   <button class="alt" id="openQueue">Open bid queue</button>
   <div class="status" id="status"></div>
 
   <div class="note">
-    This extension shows your own valuation and fills in the max-bid box.
-    It never bids on its own and never runs in the background.
+    Shows your own valuation and fills in the max-bid box. It never bids on its
+    own and never runs in the background.<br><br>
+    Importing reads pages you already have open in your own logged-in session
+    and sends them to your local engine. No credentials are stored and no login
+    is ever automated.
   </div>
 
   <script src="popup.js"></script>

@@ -61,6 +61,45 @@ class QueueStatus(str, enum.Enum):
 
 
 # --------------------------------------------------------------------------
+# What a purchase was FOR — bookkeeping, not valuation
+# --------------------------------------------------------------------------
+
+
+class Purpose(str, enum.Enum):
+    """Why an item was bought. Drives the books, not the bidding."""
+
+    MSS_EXPENSE = "mss_expense"   # Mia's Sharing Shelf — the toy library
+    RESELL = "resell"
+    PERSONAL = "personal"
+    UNDECIDED = "undecided"
+
+
+class MssCategory(str, enum.Enum):
+    """Sub-category for MSS company expenses."""
+
+    INVENTORY_TOYS = "inventory_toys"
+    SUPPLIES = "supplies"
+    FIXTURES = "fixtures"
+    OFFICE = "office"
+    OTHER = "other"
+
+
+class ValueBasis(str, enum.Enum):
+    """Which reference a savings figure was measured against.
+
+    Recorded explicitly because "you saved $340" means very different things
+    depending on the denominator. Liquidation listings routinely inflate the
+    stated retail price, and savings claimed against a made-up number is not a
+    figure to put in a company expense record.
+    """
+
+    COMPS = "comps"                  # observed second-hand sale prices — strongest
+    RETAIL_VERIFIED = "retail_ok"    # stated retail, corroborated by comps
+    RETAIL_STATED = "retail_stated"  # stated retail, uncorroborated — treat with care
+    NONE = "none"
+
+
+# --------------------------------------------------------------------------
 # Listings
 # --------------------------------------------------------------------------
 
@@ -357,6 +396,23 @@ class PortfolioItem(Base):
     sold_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     notes: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    # ---- bookkeeping -----------------------------------------------------
+    purpose: Mapped[Purpose] = mapped_column(
+        Enum(Purpose, native_enum=False), default=Purpose.UNDECIDED, index=True
+    )
+    mss_category: Mapped[MssCategory | None] = mapped_column(
+        Enum(MssCategory, native_enum=False), default=None
+    )
+    # Set when a human categorises by hand; blocks the classifier overwriting it.
+    purpose_locked: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # ---- savings ---------------------------------------------------------
+    reference_value: Mapped[float | None] = mapped_column(Float, default=None)
+    value_basis: Mapped[ValueBasis] = mapped_column(
+        Enum(ValueBasis, native_enum=False), default=ValueBasis.NONE
+    )
+    savings: Mapped[float | None] = mapped_column(Float, default=None)
 
     @property
     def realized_profit(self) -> float | None:

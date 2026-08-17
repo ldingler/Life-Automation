@@ -3,14 +3,24 @@
   "name": "Nellis Deal Engine",
   "version": "0.1.0",
   "description": "Shows your own valuation and walk-away max bid on Nellis lot pages, and pre-fills the max-bid field. You place every bid yourself.",
-  "permissions": ["storage", "tabs"],
-  "host_permissions": [
-    "https://www.nellisauction.com/*",
-    "https://nellisauction.com/*",
-    "http://127.0.0.1/*",
-    "http://localhost/*"
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "tabs"
   ],
-  "background": { "service_worker": "background.js" },
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "https://alexa.amazon.com/*",
+    "https://amazon.com/*",
+    "https://nellisauction.com/*",
+    "https://www.amazon.com/*",
+    "https://www.nellisauction.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
     "default_popup": "popup.html",
     "default_title": "Nellis Deal Engine"
@@ -21,12 +31,36 @@
         "https://www.nellisauction.com/p/*",
         "https://nellisauction.com/p/*"
       ],
-      "js": ["content.js"],
-      "css": ["content.css"],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.nellisauction.com/*",
+        "https://nellisauction.com/*",
+        "https://www.amazon.com/*",
+        "https://amazon.com/*",
+        "https://alexa.amazon.com/*"
+      ],
+      "js": [
+        "capture.js"
+      ],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
-    { "resources": ["queue.html"], "matches": ["<all_urls>"] }
+    {
+      "resources": [
+        "queue.html"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
   ]
 }

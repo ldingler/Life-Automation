@@ -257,3 +257,167 @@ class TestApiAuth:
 
     def test_open_when_no_token_configured(self, client):
         assert client.get("/api/queue").status_code == 200
+
+
+class TestPurchasesDashboard:
+    def _bought(self, db, *, hammer=80.0, landed=98.1, purpose=None, sold=None, nellis_id="1001"):
+        from nellis.models import MssCategory, PortfolioItem, Purpose, ValueBasis
+
+        lot, _, _ = seed(db, nellis_id=nellis_id, queued=False)
+        item = PortfolioItem(
+            lot_id=lot.id, hammer_price=hammer, landed_cost=landed,
+            purpose=purpose or Purpose.MSS_EXPENSE,
+            mss_category=MssCategory.INVENTORY_TOYS,
+            reference_value=186.0, value_basis=ValueBasis.COMPS,
+            savings=186.0 - landed, sold_price=sold,
+        )
+        db.add(item)
+        db.commit()
+        return item
+
+    def test_page_renders_with_savings(self, client, db):
+        self._bought(db)
+        response = client.get("/purchases")
+        assert response.status_code == 200
+        assert "Saved" in response.text
+        assert "MSS Company Expense" in response.text
+        assert "Inventory (toys)" in response.text
+
+    def test_all_in_pricing_is_stated(self, client, db):
+        self._bought(db)
+        collapsed = " ".join(client.get("/purchases").text.split())
+        assert "buyer&#39;s premium" in collapsed or "buyer's premium" in collapsed
+        assert "tax" in collapsed.lower()
+
+    def test_unverified_savings_are_separated_from_the_headline(self, client, db):
+        from nellis.models import PortfolioItem, ValueBasis
+
+        lot, _, _ = seed(db, nellis_id="9001", queued=False)
+        db.add(PortfolioItem(
+            lot_id=lot.id, hammer_price=10.0, landed_cost=12.3,
+            reference_value=900.0, value_basis=ValueBasis.RETAIL_STATED, savings=887.7,
+        ))
+        db.commit()
+        text = client.get("/purchases").text
+        collapsed = " ".join(text.split())
+
+        # The headline must read $0.00 — nothing here is comps-backed — while the
+        # inflated figure still appears, explicitly labelled as excluded.
+        headline = text.split("across")[0]
+        assert "$0.00" in headline, "unverified savings leaked into the headline"
+        assert "$887.70" in collapsed
+        assert "unverified" in collapsed.lower()
+        assert "kept out of the headline" in collapsed
+
+    def test_marking_sold_records_price(self, client, db):
+        item = self._bought(db)
+        response = client.post(
+            f"/purchases/{item.id}/sell",
+            data={"sold_price": "150.00", "sold_fees": "19.88"},
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+
+        from sqlalchemy import select
+
+        from nellis.db import session_scope
+        from nellis.models import PortfolioItem
+
+        with session_scope() as session:
+            stored = session.scalar(select(PortfolioItem).where(PortfolioItem.id == item.id))
+            assert stored.sold_price == 150.0
+            assert stored.realized_profit is not None
+
+    def test_recategorising_locks_against_the_classifier(self, client, db):
+        item = self._bought(db)
+        client.post(
+            f"/purchases/{item.id}/categorise",
+            data={"purpose": "resell", "mss_category": ""},
+            follow_redirects=True,
+        )
+
+        from sqlalchemy import select
+
+        from nellis.db import session_scope
+        from nellis.models import PortfolioItem, Purpose
+
+        with session_scope() as session:
+            stored = session.scalar(select(PortfolioItem).where(PortfolioItem.id == item.id))
+            assert stored.purpose == Purpose.RESELL
+            assert stored.purpose_locked is True
+
+    def test_filtering_by_purpose(self, client, db):
+        from nellis.models import Purpose
+
+        self._bought(db, nellis_id="A", purpose=Purpose.MSS_EXPENSE)
+        self._bought(db, nellis_id="B", purpose=Purpose.RESELL)
+        text = client.get("/purchases?purpose=resell").text
+        assert text.count("/purchases/") >= 1
+
+    def test_adding_a_purchase_applies_premium_and_tax(self, client, db):
+        seed(db, nellis_id="7777", queued=False)
+        client.post(
+            "/purchases/add",
+            data={"nellis_id": "7777", "hammer_price": "100.00", "purpose": ""},
+            follow_redirects=True,
+        )
+
+        from sqlalchemy import select
+
+        from nellis.db import session_scope
+        from nellis.models import PortfolioItem
+
+        with session_scope() as session:
+            item = session.scalars(select(PortfolioItem)).all()[-1]
+            # $100 hammer must never be recorded as a $100 cost.
+            assert item.landed_cost > 120.0
+            assert item.savings is not None
+
+    def test_empty_state_does_not_crash(self, client):
+        assert client.get("/purchases").status_code == 200
+
+
+class TestSignalIngest:
+    def test_alexa_list_creates_wants(self, client, db):
+        result = client.post(
+            "/api/signals/alexa_list",
+            json={"records": [{"title": "drywall screws", "quantity": 3},
+                              {"title": "chest freezer"}]},
+        ).json()
+        assert result["added"] == 2
+        assert result["wants_created"] == 2
+
+    def test_purchases_do_not_create_wants(self, client, db):
+        """Buying something is evidence you satisfied a want, not that you have one."""
+        result = client.post(
+            "/api/signals/nellis_purchase",
+            json={"records": [{"title": "LEGO Classic Bricks", "price": "22.00"}]},
+        ).json()
+        assert result["added"] == 1
+        assert result["wants_created"] == 0
+
+    def test_reposting_the_same_page_is_idempotent(self, client, db):
+        """The extension may capture the same page twice; that must not double-count."""
+        payload = {"records": [{"title": "Storage Shed", "price": "220", "date": "2026-06-01"}]}
+        first = client.post("/api/signals/nellis_purchase", json=payload).json()
+        second = client.post("/api/signals/nellis_purchase", json=payload).json()
+        assert first["added"] == 1
+        assert second["added"] == 0 and second["skipped"] == 1
+
+    def test_unknown_source_is_rejected(self, client):
+        assert client.post("/api/signals/bogus", json={"records": []}).status_code == 400
+
+    def test_empty_capture_is_harmless(self, client):
+        result = client.post("/api/signals/amazon_cart", json={"records": []}).json()
+        assert result["added"] == 0
+
+    def test_token_is_enforced_on_ingest(self, client, db):
+        from nellis.config import get_settings
+
+        get_settings().api_token = "s3cret"
+        try:
+            assert client.post(
+                "/api/signals/alexa_list", json={"records": [{"title": "milk"}]}
+            ).status_code == 401
+        finally:
+            get_settings().api_token = None

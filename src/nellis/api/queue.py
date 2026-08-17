@@ -24,6 +24,7 @@ from ..models import (
     Lot,
     PortfolioItem,
     QueueStatus,
+    SignalSource,
     Valuation,
 )
 from ..valuation.exposure import current_exposure
@@ -82,6 +83,18 @@ class ExposureOut(BaseModel):
     max_exposure: float
     headroom: float
     by_category: dict[str, float]
+
+
+class SignalsIn(BaseModel):
+    records: list[dict] = Field(default_factory=list)
+
+
+class SignalsOut(BaseModel):
+    source: str
+    added: int
+    skipped: int
+    wants_created: int = 0
+    errors: list[str] = Field(default_factory=list)
 
 
 class ConfirmIn(BaseModel):
@@ -341,3 +354,54 @@ def resolve_commitment(
         )
     session.flush()
     return {"status": commitment.status.value, "exposure": _exposure_out(session).model_dump()}
+
+
+# --------------------------------------------------------------------------
+# Demand-signal ingest (what the browser extension posts)
+# --------------------------------------------------------------------------
+
+# Sources that describe something wanted rather than already owned. Only these
+# may create want-list entries — a purchase is evidence you HAD a want and
+# satisfied it, not that you're still looking.
+_WANTING_SOURCES = {
+    SignalSource.ALEXA_LIST.value,
+    SignalSource.AMAZON_CART.value,
+    SignalSource.AMAZON_SAVED.value,
+    SignalSource.NELLIS_WATCHLIST.value,
+}
+
+
+@router.post("/signals/{source}", response_model=SignalsOut)
+def ingest_signals(
+    source: str,
+    payload: SignalsIn,
+    session: Session = Depends(get_db),
+    _: None = Depends(require_token),
+) -> SignalsOut:
+    """Accept captured rows from a page the operator had open.
+
+    The extension reads Nellis history, Amazon cart/saved and Alexa lists out of
+    an already-authenticated browser session and posts them here. Nothing in this
+    path logs in, stores a credential, or fetches anything.
+    """
+    valid = {s.value for s in SignalSource}
+    if source not in valid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"unknown source '{source}'; expected one of {sorted(valid)}",
+        )
+    if not payload.records:
+        return SignalsOut(source=source, added=0, skipped=0)
+
+    from ..wants.importers import import_records
+
+    result = import_records(
+        session, source, payload.records, create_wants=source in _WANTING_SOURCES
+    )
+    return SignalsOut(
+        source=source,
+        added=result.added,
+        skipped=result.skipped,
+        wants_created=result.wants_created,
+        errors=result.errors[:10],
+    )

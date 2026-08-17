@@ -23,6 +23,8 @@ knowing what number to put in. This works out that number.
 | **Protects** | Exposure caps so bidding on 20 lots at once can't leave you owing for 20 lots |
 | **Tells you** | HTML email digests, closing-soon alerts, a dashboard, and a browser extension that pre-fills the bid box |
 | **Learns** | Tracks projected vs realized profit on everything you win, so you can see when the model is being optimistic |
+| **Wants** | A second engine for "do I want this?" — want list, plus satiation so buying a shed quiets sheds for a while but buying screws never quiets screws |
+| **Books** | Categorises purchases as MSS Company Expense (inventory/supplies/fixtures/office/other), Resell or Personal; records sales; totals savings against a *defensible* reference |
 
 ---
 
@@ -292,7 +294,7 @@ src/nellis/
   web/         FastAPI + HTMX dashboard
   api/         JSON API for the extension
 extension/     Chrome MV3
-tests/         147 tests, fully offline
+tests/         237 tests, fully offline
 ```
 
 Three interfaces absorb all the volatility: `NellisAdapter` (site changes),
@@ -321,7 +323,7 @@ sold. If actual consistently trails projected, the model is optimistic — raise
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q      # 147 tests, no network
+.venv/bin/python -m pytest -q      # 237 tests, no network
 ```
 
 Browser tests for the extension are opt-in, since they need a real Chromium and

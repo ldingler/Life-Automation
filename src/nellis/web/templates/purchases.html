@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}Purchases{% endblock %}
+{% block content %}
+
+<div class="row">
+  <div class="card grow">
+    <h2>Saved</h2>
+    <div style="font-size:34px;font-weight:750;color:var(--accent);line-height:1.1">
+      ${{ '%.2f'|format(totals.headline_savings) }}
+    </div>
+    <div class="note" style="margin-top:2px">
+      across {{ totals.defensible_items }} purchase{{ '' if totals.defensible_items == 1 else 's' }}
+      backed by comparable sales
+      {% if totals.effective_discount %}
+      &middot; effectively {{ '%.0f'|format(totals.effective_discount * 100) }}% off
+      {% endif %}
+    </div>
+    {% if totals.unverified_savings %}
+    <div class="warn" style="margin-top:10px">
+      A further <b>${{ '%.2f'|format(totals.unverified_savings) }}</b> across
+      {{ totals.unverified_items }} item{{ '' if totals.unverified_items == 1 else 's' }} is
+      measured against <b>unverified</b> stated retail. Liquidation listings inflate retail
+      routinely, so it's kept out of the headline rather than folded in.
+    </div>
+    {% endif %}
+    {% if totals.unpriced_items %}
+    <div class="note">{{ totals.unpriced_items }} item(s) have nothing to price against yet.</div>
+    {% endif %}
+  </div>
+
+  <div class="card grow">
+    <h2>Spend &amp; return</h2>
+    <table>
+      <tr><td>Total spent (all-in)</td><td class="num">${{ '%.2f'|format(totals.total_spent) }}</td></tr>
+      <tr><td>Items bought</td><td class="num">{{ totals.items }}</td></tr>
+      <tr><td>Sold so far</td><td class="num">{{ stats.sold_count }}</td></tr>
+      <tr><td>Resale revenue</td><td class="num">${{ '%.2f'|format(stats.revenue) }}</td></tr>
+      <tr><td><b>Realized resale profit</b></td>
+        <td class="num"><b class="{{ 'pos' if stats.realized_profit >= 0 else 'neg' }}">${{ '%.2f'|format(stats.realized_profit) }}</b></td></tr>
+      <tr><td>Still held</td><td class="num">{{ stats.held_count }} (${{ '%.2f'|format(stats.held_cost) }})</td></tr>
+    </table>
+    <div class="note">
+      Every figure is all-in: hammer + {{ '%.0f'|format(bp_rate * 100) }}% buyer's premium
+      + {{ '%.3f'|format(tax_rate * 100) }}% tax. Each $1 bid costs ${{ '%.3f'|format(multiplier) }}.
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Where the money went</h2>
+  <table>
+    <tr>
+      <th>Category</th><th class="num">Items</th><th class="num">Spent (all-in)</th>
+      <th class="num">Saved</th><th class="num">Share</th>
+    </tr>
+    {% for row in by_category %}
+    <tr>
+      <td>
+        <b>{{ row.purpose_label }}</b>
+        {% if row.mss_label and row.mss_label != '—' %}<span class="meta"> &middot; {{ row.mss_label }}</span>{% endif %}
+      </td>
+      <td class="num">{{ row.count }}</td>
+      <td class="num">${{ '%.2f'|format(row.spent) }}</td>
+      <td class="num {{ 'pos' if row.savings > 0 else '' }}">${{ '%.2f'|format(row.savings) }}</td>
+      <td class="num">
+        {{ '%.0f'|format(row.share * 100) }}%
+        <div class="bar" style="width:70px;display:inline-block;vertical-align:middle;margin-left:6px">
+          <span style="width:{{ '%.0f'|format(row.share * 100) }}%"></span>
+        </div>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% if not by_category %}<div class="empty">Nothing recorded yet.</div>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Purchases</h2>
+  <form class="inline" method="get" action="/purchases" style="margin-bottom:12px">
+    <div><label>Purpose</label>
+      <select name="purpose" onchange="this.form.submit()">
+        <option value="">all</option>
+        {% for value, label in purposes %}
+        <option value="{{ value }}" {{ 'selected' if purpose_filter == value }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div><label>Status</label>
+      <select name="status" onchange="this.form.submit()">
+        <option value="">all</option>
+        <option value="held" {{ 'selected' if status_filter == 'held' }}>held</option>
+        <option value="sold" {{ 'selected' if status_filter == 'sold' }}>sold</option>
+      </select>
+    </div>
+  </form>
+
+  <table>
+    <tr>
+      <th>Item</th><th>Category</th><th class="num">Hammer</th>
+      <th class="num">All-in</th><th class="num">Worth</th><th class="num">Saved</th>
+      <th class="num">Sold</th><th></th>
+    </tr>
+    {% for row in items %}
+    <tr>
+      <td>
+        <a class="title" style="font-size:13px" href="/lot/{{ row.nellis_id }}">{{ row.title[:52] }}</a>
+        {% if row.basis == 'retail_stated' %}
+        <span class="tag low" title="measured against unverified stated retail">unverified</span>
+        {% endif %}
+      </td>
+      <td>
+        <form method="post" action="/purchases/{{ row.id }}/categorise" style="display:flex;gap:4px">
+          <select name="purpose" onchange="this.form.submit()" style="font-size:11px;padding:3px 5px">
+            {% for value, label in purposes %}
+            <option value="{{ value }}" {{ 'selected' if row.purpose == value }}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <select name="mss_category" onchange="this.form.submit()" style="font-size:11px;padding:3px 5px">
+            <option value="">—</option>
+            {% for value, label in mss_categories %}
+            <option value="{{ value }}" {{ 'selected' if row.mss_category == value }}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </form>
+      </td>
+      <td class="num">${{ '%.2f'|format(row.hammer_price) }}</td>
+      <td class="num"><b>${{ '%.2f'|format(row.landed_cost) }}</b></td>
+      <td class="num">{% if row.reference_value %}${{ '%.2f'|format(row.reference_value) }}{% else %}&mdash;{% endif %}</td>
+      <td class="num {{ 'pos' if (row.savings or 0) > 0 else ('neg' if row.savings is not none and row.savings < 0 else '') }}">
+        {% if row.savings is not none %}${{ '%.2f'|format(row.savings) }}{% else %}&mdash;{% endif %}
+      </td>
+      <td class="num">{% if row.sold_price %}${{ '%.2f'|format(row.sold_price) }}{% else %}&mdash;{% endif %}</td>
+      <td>
+        {% if not row.sold_price %}
+        <form method="post" action="/purchases/{{ row.id }}/sell" style="display:flex;gap:3px">
+          <input type="number" name="sold_price" step="0.01" placeholder="sold for"
+                 required style="width:78px;font-size:11px;padding:3px 5px">
+          <input type="number" name="sold_fees" step="0.01" placeholder="fees"
+                 style="width:58px;font-size:11px;padding:3px 5px">
+          <button style="font-size:11px;padding:3px 8px">Sold</button>
+        </form>
+        {% else %}
+        <span class="meta">
+          {{ row.sold_channel or 'sold' }}
+          {% if row.realized_profit is not none %}
+          &middot; <span class="{{ 'pos' if row.realized_profit >= 0 else 'neg' }}">${{ '%.2f'|format(row.realized_profit) }}</span>
+          {% endif %}
+        </span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% if not items %}
+  <div class="empty">
+    No purchases recorded. They appear here once you mark a won lot,
+    or import your Nellis history.
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Record a purchase by hand</h2>
+  <form class="inline" method="post" action="/purchases/add">
+    <div><label>Lot ID</label><input name="nellis_id" required style="width:100px"></div>
+    <div><label>Hammer price</label><input type="number" name="hammer_price" step="0.01" required style="width:104px"></div>
+    <div><label>Purpose</label>
+      <select name="purpose">
+        <option value="">auto-classify</option>
+        {% for value, label in purposes %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <button type="submit">Add</button>
+  </form>
+  <div class="note">Buyer's premium and tax are added automatically — enter the hammer price only.</div>
+</div>
+
+{% endblock %}
