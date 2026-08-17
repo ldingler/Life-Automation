@@ -378,3 +378,155 @@ class Alert(Base):
     dedupe_key: Mapped[str] = mapped_column(String(256), unique=True, index=True)
     subject: Mapped[str | None] = mapped_column(String(512), default=None)
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# --------------------------------------------------------------------------
+# Personal wants — "do I want this?" rather than "can I flip this?"
+#
+# The resale side of this system asks whether a lot can be sold on at a margin.
+# These models answer a different question: whether Logan personally wants the
+# thing. A shed he needs is worth buying at a price that would be a terrible
+# flip, and the two verdicts must not be conflated.
+# --------------------------------------------------------------------------
+
+
+class ReplenishmentClass(str, enum.Enum):
+    """How wanting something changes after you buy one.
+
+    The distinction Logan drew: buying screws doesn't mean you stop needing
+    screws, and buying a shed doesn't strictly mean you'll never want another —
+    but buying a microwave probably does.
+    """
+
+    CONSUMABLE = "consumable"          # screws, batteries, filters — never satiated
+    STOCKABLE = "stockable"            # bins, cords, tarps — more is fine
+    DURABLE_MULTI = "durable_multi"    # sheds, chairs, tools — maybe another, later
+    DURABLE_SINGLE = "durable_single"  # microwave, mower — one is enough
+
+
+class SignalSource(str, enum.Enum):
+    NELLIS_PURCHASE = "nellis_purchase"
+    NELLIS_RETURN = "nellis_return"
+    NELLIS_WATCHLIST = "nellis_watchlist"
+    AMAZON_CART = "amazon_cart"
+    AMAZON_SAVED = "amazon_saved"
+    AMAZON_ORDER = "amazon_order"
+    ALEXA_LIST = "alexa_list"
+    MANUAL = "manual"
+
+
+# How strongly each source implies "I want this", and whether it means
+# "already satisfied". A return is the strongest possible negative signal.
+SOURCE_INTENT: dict[str, float] = {
+    SignalSource.MANUAL.value: 1.00,
+    SignalSource.ALEXA_LIST.value: 0.95,      # you literally said you need it
+    SignalSource.AMAZON_CART.value: 0.90,     # about to buy it
+    SignalSource.NELLIS_WATCHLIST.value: 0.85,
+    SignalSource.AMAZON_SAVED.value: 0.60,    # wanted it, not urgently
+    SignalSource.NELLIS_PURCHASE.value: 0.50, # proves taste, but you have one
+    SignalSource.AMAZON_ORDER.value: 0.50,
+    SignalSource.NELLIS_RETURN.value: -1.00,  # you tried it and sent it back
+}
+
+
+class WantItem(Base):
+    """Something Logan is actively looking for.
+
+    Distinct from `Watch`, which is a resale hunting rule. A WantItem is a
+    personal need: "I want a chest freezer", with what it's worth to him rather
+    than what it might resell for.
+    """
+
+    __tablename__ = "want_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    label: Mapped[str] = mapped_column(String(200))
+    query_key: Mapped[str] = mapped_column(String(256), index=True)
+
+    keywords: Mapped[str | None] = mapped_column(Text, default=None)
+    exclude_terms: Mapped[str | None] = mapped_column(Text, default=None)
+    category: Mapped[str | None] = mapped_column(String(128), default=None)
+
+    # What it's worth to YOU. Not a resale estimate — the most you'd rationally
+    # pay landed rather than buy it new elsewhere.
+    max_worth_to_me: Mapped[float | None] = mapped_column(Float, default=None)
+    target_discount_vs_retail: Mapped[float] = mapped_column(Float, default=0.5)
+
+    replenishment: Mapped[ReplenishmentClass] = mapped_column(
+        Enum(ReplenishmentClass, native_enum=False), default=ReplenishmentClass.DURABLE_MULTI
+    )
+    # Set by hand when the operator corrects a guess; blocks re-inference.
+    replenishment_locked: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    priority: Mapped[float] = mapped_column(Float, default=1.0)
+    min_condition: Mapped[str | None] = mapped_column(String(64), default=None)
+    accept_damaged: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    snoozed_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    source: Mapped[str] = mapped_column(String(32), default=SignalSource.MANUAL.value)
+    notes: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (Index("ix_want_active_key", "active", "query_key"),)
+
+
+class DemandSignal(Base):
+    """One observed piece of evidence about what Logan wants or already has.
+
+    Everything imported — Nellis purchases and returns, watchlist entries,
+    Amazon cart and saved-for-later, Alexa list lines — lands here in one shape,
+    so the scoring never has to care where a signal came from.
+    """
+
+    __tablename__ = "demand_signals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source: Mapped[str] = mapped_column(String(32), index=True)
+    query_key: Mapped[str] = mapped_column(String(256), index=True)
+    title: Mapped[str] = mapped_column(String(512))
+
+    quantity: Mapped[int] = mapped_column(Integer, default=1)
+    price_paid: Mapped[float | None] = mapped_column(Float, default=None)
+    condition: Mapped[str | None] = mapped_column(String(64), default=None)
+    category: Mapped[str | None] = mapped_column(String(128), default=None)
+    brand: Mapped[str | None] = mapped_column(String(128), default=None)
+
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    external_id: Mapped[str | None] = mapped_column(String(128), default=None)
+    raw: Mapped[dict | None] = mapped_column(JSON, default=None)
+
+    __table_args__ = (
+        UniqueConstraint("source", "external_id", name="uq_signal_source_external"),
+        Index("ix_signal_key_time", "query_key", "occurred_at"),
+    )
+
+    @property
+    def intent_weight(self) -> float:
+        return SOURCE_INTENT.get(self.source, 0.5)
+
+
+class WantMatch(Base):
+    """A lot the want engine thinks Logan personally wants."""
+
+    __tablename__ = "want_matches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    lot_id: Mapped[int] = mapped_column(ForeignKey("lots.id", ondelete="CASCADE"), index=True)
+    want_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("want_items.id", ondelete="SET NULL"), default=None
+    )
+
+    interest_score: Mapped[float] = mapped_column(Float, default=0.0, index=True)
+    satiation_multiplier: Mapped[float] = mapped_column(Float, default=1.0)
+    discount_vs_retail: Mapped[float | None] = mapped_column(Float, default=None)
+    landed_at_max: Mapped[float | None] = mapped_column(Float, default=None)
+    suggested_max_bid: Mapped[float] = mapped_column(Float, default=0.0)
+
+    matched_via: Mapped[str | None] = mapped_column(String(64), default=None)
+    explanation: Mapped[str | None] = mapped_column(Text, default=None)
+    suppressed: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (UniqueConstraint("lot_id", "want_item_id", name="uq_want_match"),)
