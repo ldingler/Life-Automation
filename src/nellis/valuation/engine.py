@@ -23,12 +23,14 @@ from datetime import UTC, datetime
 from sqlalchemy.orm import Session
 
 from ..config import Settings, get_settings
+from ..market import apply_ceiling, market_view_for_lot
+from ..market.alternatives import CeilingDecision, MarketView
 from ..models import Confidence, Lot, Valuation
 from .comps import CompsService, ItemQuery
 from .comps.base import CompSet
 from .condition import ConditionReport, analyze_condition
 from .confidence import ConfidenceReport, score_confidence
-from .cost import landed_cost, profit_at, walk_away_max_bid
+from .cost import bid_increment, landed_cost, profit_at, walk_away_max_bid
 from .exposure import ExposureDecision, check_exposure
 from .repair import RepairAssessment, assess_repair
 from .repair.base import PartsProvider
@@ -60,6 +62,8 @@ class ValuationResult:
 
     recommended: bool
     reason: str
+    market: MarketView | None = None
+    ceiling: CeilingDecision | None = None
     exposure: ExposureDecision | None = None
     warnings: list[str] = field(default_factory=list)
 
@@ -99,6 +103,8 @@ class ValuationResult:
                 "recommended": self.recommended,
                 "reason": self.reason,
             },
+            "market": self.market.as_dict() if self.market else None,
+            "ceiling": self.ceiling.as_dict() if self.ceiling else None,
             "exposure": self.exposure.as_dict() if self.exposure else None,
             "warnings": self.warnings,
         }
@@ -257,6 +263,40 @@ class ValuationEngine:
             pickup=settings.pickup_cost,
         )
 
+        # 6b. Could we just buy one instead?
+        #
+        # Everything above compares this lot against itself — what the same item
+        # fetches second-hand. That silently assumes winning this auction is the
+        # only way to get the thing. If an equally good product sells new for
+        # less than the landed bid, the correct move is to buy that instead, no
+        # matter how good the discount-off-retail looks.
+        market = market_view_for_lot(self.session, lot)
+        ceiling = apply_ceiling(market, landed.total)
+
+        if not ceiling.allowed and ceiling.ceiling is not None:
+            # Re-solve against the cheaper of our margin ceiling and the market's.
+            capped = walk_away_max_bid(
+                min(net_resale, ceiling.ceiling / max(1e-9, 1.0 - effective_margin)),
+                target_margin=effective_margin,
+                bp_rate=bp_rate,
+                tax_rate=tax_rate,
+                pickup=settings.pickup_cost,
+            )
+            while capped > 0:
+                trial = landed_cost(
+                    capped, bp_rate=bp_rate, tax_rate=tax_rate, pickup=settings.pickup_cost
+                )
+                if trial.total <= ceiling.ceiling:
+                    break
+                capped -= bid_increment(capped)
+            max_bid = max(0.0, capped)
+            landed = landed_cost(
+                max_bid, bp_rate=bp_rate, tax_rate=tax_rate, pickup=settings.pickup_cost
+            )
+            projected_profit = net_resale - landed.total if max_bid > 0 else 0.0
+            projected_margin = projected_profit / net_resale if net_resale > 0 else 0.0
+            warnings.append(ceiling.reason)
+
         # 7. Can we afford the commitment?
         exposure: ExposureDecision | None = None
         if check_exposure_caps and max_bid > 0:
@@ -271,7 +311,8 @@ class ValuationEngine:
             )
 
         recommended, reason = self._verdict(
-            lot, max_bid, projected_profit, confidence, condition, exposure, settings
+            lot, max_bid, projected_profit, confidence, condition, exposure, settings,
+            ceiling=ceiling,
         )
 
         result = ValuationResult(
@@ -291,6 +332,8 @@ class ValuationEngine:
             profit_at_current_bid=current_profit,
             recommended=recommended,
             reason=reason,
+            market=market,
+            ceiling=ceiling,
             exposure=exposure,
             warnings=warnings,
         )
@@ -306,8 +349,14 @@ class ValuationEngine:
         condition: ConditionReport,
         exposure: ExposureDecision | None,
         settings: Settings,
+        ceiling: CeilingDecision | None = None,
     ) -> tuple[bool, str]:
         current = lot.current_bid or 0.0
+
+        # Checked early: "you can buy this new for less" is a more useful answer
+        # than "the margin is thin", and it's the reason the margin is thin.
+        if ceiling is not None and not ceiling.allowed and max_bid <= current:
+            return False, ceiling.reason
 
         # Fatal is checked first, before the generic max_bid <= 0 case. Fatal
         # damage zeroes the bid, so a later check would swallow it and report
@@ -365,6 +414,19 @@ class ValuationEngine:
             profit_at_current_bid=result.profit_at_current_bid,
             recommended=result.recommended,
             reason=result.reason,
+            market_verification=result.market.verification.value if result.market else None,
+            verified_retail=result.market.verified_retail if result.market else None,
+            best_alternative_price=(
+                result.market.best_alternative.price
+                if result.market and result.market.best_alternative
+                else None
+            ),
+            best_alternative_note=(
+                result.market.best_alternative.describe()
+                if result.market and result.market.best_alternative
+                else None
+            ),
+            opportunity_ceiling=result.market.opportunity_ceiling if result.market else None,
         )
         self.session.add(record)
         self.session.flush()

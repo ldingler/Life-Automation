@@ -405,3 +405,38 @@ def ingest_signals(
         wants_created=result.wants_created,
         errors=result.errors[:10],
     )
+
+
+class MarketPricesIn(BaseModel):
+    query_key: str | None = None
+    lot_id: str | None = None
+    records: list[dict] = Field(default_factory=list)
+
+
+@router.post("/market-prices")
+def ingest_market_prices(
+    payload: MarketPricesIn,
+    session: Session = Depends(get_db),
+    _: None = Depends(require_token),
+) -> dict:
+    """Record what an item costs to buy elsewhere right now.
+
+    Fed by the extension reading a product page you have open. Amazon's Product
+    Advertising API needs an Associate account with qualifying sales and
+    Walmart's needs partner approval, so reading a page already on screen is the
+    route that needs no credentials at all.
+    """
+    from ..market.lookup import record_prices
+    from ..normalize import normalize_item_key
+
+    key = payload.query_key
+    if not key and payload.lot_id:
+        lot = session.scalar(select(Lot).where(Lot.nellis_id == payload.lot_id))
+        if lot is None:
+            raise HTTPException(status_code=404, detail="lot not found")
+        key = normalize_item_key(lot.title, brand=lot.brand, model=lot.model, upc=lot.upc)
+    if not key:
+        raise HTTPException(status_code=400, detail="query_key or lot_id required")
+
+    added = record_prices(session, key, payload.records)
+    return {"query_key": key, "added": added, "received": len(payload.records)}

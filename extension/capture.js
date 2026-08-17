@@ -34,6 +34,70 @@
 
   const clean = (text) => (text || "").replace(/\s+/g, " ").trim();
 
+  /**
+   * Is this a product page whose price is worth recording?
+   *
+   * Amazon's Product Advertising API requires an Associate account with
+   * qualifying sales, and Walmart's requires partner approval — so reading the
+   * page you already have open is the only route that needs no credentials.
+   */
+  function detectProductPage() {
+    const { host, pathname } = location;
+    if (/amazon\.(com|co\.uk|ca)$/.test(host) && /\/dp\/|\/gp\/product\//.test(pathname)) {
+      return "amazon";
+    }
+    if (/walmart\.com$/.test(host) && /\/ip\//.test(pathname)) return "walmart";
+    if (/target\.com$/.test(host) && /\/p\//.test(pathname)) return "target";
+    if (/homedepot\.com$/.test(host) && /\/p\//.test(pathname)) return "homedepot";
+    if (/lowes\.com$/.test(host) && /\/pd\//.test(pathname)) return "lowes";
+    if (/bestbuy\.com$/.test(host) && /\/site\//.test(pathname)) return "bestbuy";
+    return null;
+  }
+
+  /**
+   * Read title, price and — critically — the rating and review count.
+   *
+   * The quality signals aren't optional garnish: without them a $19 knock-off
+   * would veto every genuine $500 lot, so an unrated capture is recorded but can
+   * never be the reason a bid is refused.
+   */
+  function extractProduct(source) {
+    const title = clean(
+      document.querySelector("#productTitle, h1[itemprop='name'], h1[data-automation-id], h1")
+        ?.innerText
+    );
+    if (!title) return null;
+
+    const priceText = [
+      "[data-testid='price-wrap']", "#corePrice_feature_div", ".priceToPay",
+      "[itemprop='price']", "[data-automation-id='product-price']",
+      "[class*='price']",
+    ]
+      .map((sel) => clean(document.querySelector(sel)?.innerText))
+      .find((text) => text && MONEY.test(text));
+
+    const amount = money(priceText || document.body.innerText.slice(0, 4000));
+    if (!amount) return null;
+
+    const body = document.body.innerText;
+    const ratingMatch = /([0-5](?:\.\d)?)\s*out of\s*5/i.exec(body) ||
+      /([0-5](?:\.\d)?)\s*(?:star|★)/i.exec(body);
+    const reviewMatch = /([\d,]{1,9})\s*(?:global\s*)?(?:ratings?|reviews?)/i.exec(body);
+
+    const outOfStock = /out of stock|currently unavailable|sold out/i.test(body);
+
+    return {
+      title: title.slice(0, 300),
+      price: amount,
+      source,
+      url: location.href.split("?")[0],
+      rating: ratingMatch ? parseFloat(ratingMatch[1]) : null,
+      review_count: reviewMatch ? parseInt(reviewMatch[1].replace(/,/g, ""), 10) : null,
+      in_stock: !outOfStock,
+      kind: "exact_new",
+    };
+  }
+
   /** Which importable source, if any, is this page? */
   function detectSource() {
     const { host, pathname } = location;
@@ -168,6 +232,44 @@
     setTimeout(() => el.remove(), 6000);
   }
 
+  async function captureProduct(interactive = true) {
+    const source = detectProductPage();
+    if (!source) return { added: 0 };
+
+    const product = extractProduct(source);
+    if (!product) {
+      if (interactive) toast("Couldn't read a price on this page.", false);
+      return { added: 0 };
+    }
+
+    const config = await settings();
+    const headers = { "Content-Type": "application/json" };
+    if (config.apiToken) headers["X-API-Token"] = config.apiToken;
+
+    // `kind` is chosen by the engine side when a lot is named; a bare capture
+    // is recorded as an exact-match price for its own key.
+    const response = await fetch(
+      `${config.apiBase.replace(/\/$/, "")}/api/market-prices`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ query_key: null, lot_id: null, records: [product] }),
+      }
+    ).catch(() => null);
+
+    if (!response || !response.ok) {
+      if (interactive) toast("Couldn't reach the engine to save this price.", false);
+      return { added: 0 };
+    }
+    if (interactive) {
+      const quality = product.rating
+        ? ` (${product.rating}★, ${product.review_count ?? "?"} reviews)`
+        : " — no rating found, so it won't be used to reject a lot";
+      toast(`Recorded $${product.price.toFixed(2)} from ${source}${quality}`);
+    }
+    return response.json();
+  }
+
   async function capture(interactive = true) {
     const source = detectSource();
     if (!source) {
@@ -204,6 +306,10 @@
       capture(true).then(sendResponse).catch(() => sendResponse({ captured: 0 }));
       return true; // async response
     }
+    if (message?.type === "nde-capture-price") {
+      captureProduct(true).then(sendResponse).catch(() => sendResponse({ added: 0 }));
+      return true;
+    }
     if (message?.type === "nde-detect") {
       sendResponse({ source: detectSource() });
       return false;
@@ -214,6 +320,25 @@
   // Offer, don't act. A button appears on importable pages; nothing is sent
   // until it's clicked, unless auto-capture was explicitly switched on.
   (async () => {
+    // Product pages get their own, quieter offer.
+    const productSource = detectProductPage();
+    if (productSource && !document.getElementById("nde-price-btn")) {
+      const priceButton = document.createElement("button");
+      priceButton.id = "nde-price-btn";
+      priceButton.textContent = "Save this price → Deal Engine";
+      priceButton.style.cssText = `
+        position:fixed;bottom:18px;left:18px;z-index:2147483000;
+        background:#0d3b2e;color:#fff;border:0;border-radius:9px;
+        padding:11px 15px;font:13px/1 -apple-system,sans-serif;font-weight:650;
+        cursor:pointer;box-shadow:0 8px 26px rgba(0,0,0,.28)`;
+      priceButton.addEventListener("click", () => {
+        priceButton.disabled = true;
+        captureProduct(true).finally(() => priceButton.remove());
+      });
+      document.body.appendChild(priceButton);
+      return;
+    }
+
     const source = detectSource();
     if (!source) return;
     const config = await settings();

@@ -24,6 +24,7 @@ knowing what number to put in. This works out that number.
 | **Tells you** | HTML email digests, closing-soon alerts, a dashboard, and a browser extension that pre-fills the bid box |
 | **Learns** | Tracks projected vs realized profit on everything you win, so you can see when the model is being optimistic |
 | **Wants** | A second engine for "do I want this?" — want list, plus satiation so buying a shed quiets sheds for a while but buying screws never quiets screws |
+| **Verifies** | Confirms stated retail against real listings for the exact item, and finds cheaper *equally-rated* substitutes — then refuses any bid that lands above the best real alternative |
 | **Books** | Categorises purchases as MSS Company Expense (inventory/supplies/fixtures/office/other), Resell or Personal; records sales; totals savings against a *defensible* reference |
 
 ---
@@ -181,6 +182,23 @@ supports a landed cost of ~$84, which after premium and tax means a **max bid of
 $68**. The lot showing "$41, retail $299" is a good deal — but only up to $68,
 and the number that matters is $68, not $299.
 
+### The alternative ceiling
+
+Comps answer "what did this sell for?" — but that assumes winning the auction is
+the only way to get the thing. It isn't. Before recommending any bid, the engine
+checks what it costs to just **buy one instead**:
+
+```
+Nellis:  Widget A, retail $500, bid at $350
+Reality: Widget B, 4.5★ / 800 reviews, $300 NEW at Amazon
+Verdict: don't bid — landed $429 vs $300 new
+```
+
+A substitute only counts if it's genuinely comparable (≥4.0★, ≥25 reviews),
+otherwise the cheapest junk on the internet would veto every good lot. And buying
+used at auction has to beat buying new by 30%, not a rounding error — there's a
+pickup trip, no warranty, no returns.
+
 Confidence is scored from comp count, price dispersion, recency and source
 agreement. Low confidence doesn't block a deal — it *raises the required margin*,
 so uncertainty costs money instead of being ignored.
@@ -294,7 +312,7 @@ src/nellis/
   web/         FastAPI + HTMX dashboard
   api/         JSON API for the extension
 extension/     Chrome MV3
-tests/         237 tests, fully offline
+tests/         264 tests, fully offline
 ```
 
 Three interfaces absorb all the volatility: `NellisAdapter` (site changes),
@@ -323,7 +341,7 @@ sold. If actual consistently trails projected, the model is optimistic — raise
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q      # 237 tests, no network
+.venv/bin/python -m pytest -q      # 264 tests, no network
 ```
 
 Browser tests for the extension are opt-in, since they need a real Chromium and

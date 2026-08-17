@@ -16,7 +16,12 @@
     "https://amazon.com/*",
     "https://nellisauction.com/*",
     "https://www.amazon.com/*",
-    "https://www.nellisauction.com/*"
+    "https://www.bestbuy.com/*",
+    "https://www.homedepot.com/*",
+    "https://www.lowes.com/*",
+    "https://www.nellisauction.com/*",
+    "https://www.target.com/*",
+    "https://www.walmart.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -41,11 +46,16 @@
     },
     {
       "matches": [
-        "https://www.nellisauction.com/*",
+        "https://alexa.amazon.com/*",
+        "https://amazon.com/*",
         "https://nellisauction.com/*",
         "https://www.amazon.com/*",
-        "https://amazon.com/*",
-        "https://alexa.amazon.com/*"
+        "https://www.bestbuy.com/*",
+        "https://www.homedepot.com/*",
+        "https://www.lowes.com/*",
+        "https://www.nellisauction.com/*",
+        "https://www.target.com/*",
+        "https://www.walmart.com/*"
       ],
       "js": [
         "capture.js"

@@ -322,6 +322,15 @@ class Valuation(Base):
     projected_margin: Mapped[float | None] = mapped_column(Float, default=None)
     profit_at_current_bid: Mapped[float | None] = mapped_column(Float, default=None)
 
+    # ---- outside market --------------------------------------------------
+    # What it costs to just buy one elsewhere. A great discount off retail is
+    # still a bad buy if an equally good product sells new for less.
+    market_verification: Mapped[str | None] = mapped_column(String(24), default=None)
+    verified_retail: Mapped[float | None] = mapped_column(Float, default=None)
+    best_alternative_price: Mapped[float | None] = mapped_column(Float, default=None)
+    best_alternative_note: Mapped[str | None] = mapped_column(Text, default=None)
+    opportunity_ceiling: Mapped[float | None] = mapped_column(Float, default=None)
+
     recommended: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     reason: Mapped[str | None] = mapped_column(Text, default=None)
 
@@ -586,3 +595,66 @@ class WantMatch(Base):
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     __table_args__ = (UniqueConstraint("lot_id", "want_item_id", name="uq_want_match"),)
+
+
+# --------------------------------------------------------------------------
+# What this thing actually costs to buy elsewhere, right now
+# --------------------------------------------------------------------------
+
+
+class PriceKind(str, enum.Enum):
+    """Whether an observed price is for THIS item or a stand-in for it."""
+
+    EXACT_NEW = "exact_new"        # same item, new — verifies stated retail
+    EXACT_USED = "exact_used"      # same item, used/refurb
+    SUBSTITUTE_NEW = "sub_new"     # different item, same job, new
+    SUBSTITUTE_USED = "sub_used"
+
+
+class VerificationStatus(str, enum.Enum):
+    """How stated retail held up when checked against real listings."""
+
+    VERIFIED = "verified"        # real sellers list it near the stated price
+    OVERSTATED = "overstated"    # real price is materially lower
+    UNDERSTATED = "understated"  # stated retail is below the real street price
+    UNVERIFIED = "unverified"    # nothing found — no claim either way
+
+
+class MarketPrice(Base):
+    """One price observed at a real retailer for a real, buyable item.
+
+    Distinct from `Comp`, which records what something *sold for* second-hand.
+    This is what you would pay to get one today, which is the number that decides
+    whether bidding makes any sense at all.
+    """
+
+    __tablename__ = "market_prices"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    query_key: Mapped[str] = mapped_column(String(256), index=True)
+    kind: Mapped[PriceKind] = mapped_column(Enum(PriceKind, native_enum=False), index=True)
+
+    source: Mapped[str] = mapped_column(String(48), index=True)  # amazon|walmart|ebay|…
+    title: Mapped[str] = mapped_column(String(512))
+    price: Mapped[float] = mapped_column(Float)
+    shipping: Mapped[float] = mapped_column(Float, default=0.0)
+    url: Mapped[str | None] = mapped_column(String(1024), default=None)
+    in_stock: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # Quality signals. Without these a $19 knock-off would veto every genuine
+    # $500 lot, so a substitute only counts if it's actually comparable.
+    rating: Mapped[float | None] = mapped_column(Float, default=None)          # 0..5
+    review_count: Mapped[int | None] = mapped_column(Integer, default=None)
+    brand: Mapped[str | None] = mapped_column(String(128), default=None)
+
+    similarity: Mapped[float] = mapped_column(Float, default=1.0)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    raw: Mapped[dict | None] = mapped_column(JSON, default=None)
+
+    __table_args__ = (
+        Index("ix_market_key_kind", "query_key", "kind", "observed_at"),
+    )
+
+    @property
+    def total_price(self) -> float:
+        return self.price + (self.shipping or 0.0)
